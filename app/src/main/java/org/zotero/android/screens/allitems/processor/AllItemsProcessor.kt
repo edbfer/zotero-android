@@ -173,6 +173,7 @@ class AllItemsProcessor @Inject constructor(
                     }
                     is AttachmentDownloader.Update.Kind.failed -> {
                         //TODO implement when unzipping is supported
+
                     }
                     else -> {}
                 }

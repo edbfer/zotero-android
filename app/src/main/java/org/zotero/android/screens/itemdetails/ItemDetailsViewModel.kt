@@ -1,10 +1,14 @@
 package org.zotero.android.screens.itemdetails
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import android.webkit.MimeTypeMap
+import android.widget.Toast
 import androidx.core.net.toFile
 import androidx.core.net.toUri
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.realm.ObjectChangeSet
@@ -113,6 +117,7 @@ import org.zotero.android.uicomponents.singlepicker.SinglePickerStateCreator
 import timber.log.Timber
 import java.io.File
 import java.net.URLEncoder
+import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.util.Date
 import javax.inject.Inject
@@ -229,6 +234,14 @@ class ItemDetailsViewModel @Inject constructor(
                     }
                     is AttachmentDownloader.Update.Kind.failed -> {
                         //TODO implement when unzipping is supported
+                        //But also PDF attachments will fall in here!
+                        val attachmentResult = attachment(key = update.key,  libraryId = update.libraryId)
+                        if (attachmentResult != null)
+                        {
+                            viewModelScope.launch {
+                                showLinkedPdf(attachment = attachmentResult.first, library = attachmentResult.second)
+                            }
+                        }
                     }
                     else -> {}
                 }
@@ -1545,6 +1558,52 @@ class ItemDetailsViewModel @Inject constructor(
         return attachment to library
     }
 
+    private suspend fun showLinkedPdf(attachment: Attachment, library: Library)
+    {
+        val attachmentType = attachment.type
+        when (attachmentType)
+        {
+            is Attachment.Kind.file ->
+            {
+                val filename = defaults.getRootLinkedFilesPath().toString() + "/" + attachment.title
+                //docfile stuff
+                val docFiles = DocumentFile.fromTreeUri(context, defaults.getRootLinkedFilesPath())
+                if (docFiles == null)
+                {
+                    //Something has gone wrong
+                    val toast = Toast.makeText(context, "Error opening Linked Files Root directory. Please make sure it is set correctly.", Toast.LENGTH_LONG)
+                    toast.show()
+                    return
+                }
+
+                val file = docFiles.findFile(attachment.title)
+                var fail : Boolean = false
+
+                if (file == null) {
+                    fail = true
+                }
+                else if(!file.canRead())
+                {
+                    fail = true
+                }
+
+                if(fail) {     //Something has gone wrong
+                    val toast =
+                        Toast.makeText(context, "Error opening file " + attachment.title, Toast.LENGTH_LONG)
+                    toast.show()
+                    return
+                }
+
+                Log.w("Testtest", file!!.canRead().toString())
+                showPdffromuri(uri = file.uri, attachment = attachment)
+            }
+            else ->
+            {
+                return
+            }
+        }
+    }
+
     private suspend fun show(attachment: Attachment, library: Library) {
         val attachmentType = attachment.type
         when (attachmentType) {
@@ -1592,6 +1651,19 @@ class ItemDetailsViewModel @Inject constructor(
 
     private fun showPdf(file: File, attachment: Attachment) {
         val uri = Uri.fromFile(file)
+        val pdfReaderArgs = PdfReaderArgs(
+            key = attachment.key,
+            library = viewState.library!!,
+            page = null,
+            preselectedAnnotationKey = null,
+            uri = uri,
+        )
+        val params = navigationParamsMarshaller.encodeObjectToBase64(pdfReaderArgs)
+        triggerEffect(NavigateToPdfScreen(params))
+    }
+
+    private fun showPdffromuri(uri: Uri, attachment: Attachment) {
+        //val uri = Uri.fromFile(file)
         val pdfReaderArgs = PdfReaderArgs(
             key = attachment.key,
             library = viewState.library!!,

@@ -2,6 +2,7 @@ package org.zotero.android.architecture
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.Uri
 import androidx.core.content.edit
 import org.zotero.android.database.objects.AnnotationsConfig
 import org.zotero.android.files.DataMarshaller
@@ -20,6 +21,7 @@ open class Defaults @Inject constructor(
     private val userId = "userId"
     private val name = "name"
     private val username = "username"
+    private val rootLinkedFilesPath = "root_lf_path"
     private val displayName = "displayName"
     private val apiToken = "apiToken"
     private val webDavPassword = "webDavPassword"
@@ -116,6 +118,17 @@ open class Defaults @Inject constructor(
 
     fun getUsername(): String {
         return sharedPreferences.getString(username, "" )!!
+    }
+
+    fun getRootLinkedFilesPath() : Uri {
+        return Uri.parse(sharedPreferences.getString(rootLinkedFilesPath, "")!!)
+    }
+
+    fun setRootLinkedFilesPath(uri: Uri)
+    {
+        sharedPreferences.edit(commit = true) {
+            remove(rootLinkedFilesPath)
+            putString(rootLinkedFilesPath, uri.toString())}
     }
 
     fun setDisplayName(str: String) {

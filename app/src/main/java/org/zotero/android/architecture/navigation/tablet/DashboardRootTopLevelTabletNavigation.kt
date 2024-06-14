@@ -2,6 +2,7 @@
 package org.zotero.android.architecture.navigation.tablet
 
 import android.net.Uri
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.runtime.Composable
@@ -27,11 +28,13 @@ import java.io.File
 
 @Composable
 internal fun DashboardRootTopLevelTabletNavigation(
+    onPathSelect: (callPoint: EventBusConstants.PathWasSelected.CallPoint) -> Unit,
     onPickFile: (callPoint: EventBusConstants.FileWasSelected.CallPoint) -> Unit,
     onOpenFile: (file: File, mimeType: String) -> Unit,
     onOpenWebpage: (uri: Uri) -> Unit,
     viewModel: DashboardViewModel,
     wasPspdfkitInitialized: Boolean,
+
 ) {
     val context = LocalContext.current
     val navController = rememberNavController()
@@ -59,6 +62,7 @@ internal fun DashboardRootTopLevelTabletNavigation(
             },
             toAddOrEditNote = navigation::toAddOrEditNote,
             toZoteroWebViewScreen = navigation::toZoteroWebViewScreen,
+            onPathSelect = onPathSelect
         )
         pdfReaderScreenAndNavigationForTablet(
             navigation = navigation,
@@ -75,6 +79,7 @@ internal fun DashboardRootTopLevelTabletNavigation(
 }
 
 private fun NavGraphBuilder.dashboardScreen(
+    onPathSelect: (callPoint: EventBusConstants.PathWasSelected.CallPoint) -> Unit,
     onPickFile: (callPoint: EventBusConstants.FileWasSelected.CallPoint) -> Unit,
     onOpenFile: (file: File, mimeType: String) -> Unit,
     onShowPdf: (String) -> Unit,
@@ -94,7 +99,8 @@ private fun NavGraphBuilder.dashboardScreen(
             toAddOrEditNote = toAddOrEditNote,
             toZoteroWebViewScreen = toZoteroWebViewScreen,
             onOpenWebpage = onOpenWebpage,
-            viewModel = viewModel
+            viewModel = viewModel,
+            onPathSelect = onPathSelect
         )
     }
 }

@@ -259,6 +259,7 @@
     <string name="settings.sync.file_syncing">File Syncing</string>
     <string name="settings.sync.file_syncing_type_message">Sync attachment files in My Library using</string>
     <string name="settings.sync.account">Account</string>
+    <string name="settings.linked_files.location">Linked Files Location</string>
     <string name="settings.sync.manage_account">Manage Account</string>
     <string name="settings.sync.delete_account">Delete Account</string>
     <string name="settings.sync.username">Username</string>

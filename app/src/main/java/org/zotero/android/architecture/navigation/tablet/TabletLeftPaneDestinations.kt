@@ -2,12 +2,14 @@
 package org.zotero.android.architecture.navigation.tablet
 
 import android.net.Uri
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.rememberNavController
+import org.zotero.android.architecture.EventBusConstants
 import org.zotero.android.architecture.navigation.CommonScreenDestinations
 import org.zotero.android.architecture.navigation.ZoteroNavigation
 import org.zotero.android.architecture.navigation.collectionsScreen
@@ -20,6 +22,7 @@ import org.zotero.android.uicomponents.navigation.ZoteroNavHost
 
 @Composable
 internal fun TabletLeftPaneNavigation(
+    onPathSelect: (callPoint: EventBusConstants.PathWasSelected.CallPoint) -> Unit,
     onOpenWebpage: (uri: Uri) -> Unit,
     navigateAndPopAllItemsScreen: () -> Unit,
 ) {
@@ -59,7 +62,7 @@ internal fun TabletLeftPaneNavigation(
         dialogDynamicHeight(
             route = TabletLeftPaneDestinations.SETTINGS_NAVIGATION,
         ) {
-            SettingsNavigation(onOpenWebpage = onOpenWebpage)
+            SettingsNavigation(onOpenWebpage = onOpenWebpage, onPathSelect = {onPathSelect(EventBusConstants.PathWasSelected.CallPoint.AllItems)})
         }
     }
 }

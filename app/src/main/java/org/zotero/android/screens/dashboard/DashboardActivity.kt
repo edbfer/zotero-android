@@ -34,10 +34,12 @@ import javax.inject.Inject
 internal class DashboardActivity : BaseActivity() {
 
     private lateinit var pickFileLauncher: ActivityResultLauncher<Intent>
+    private lateinit var pickPathLauncher: ActivityResultLauncher<Uri?>
 
     private val viewModel: DashboardViewModel by viewModels()
 
     private var pickFileCallPoint: CallPoint = AllItems
+    private var selectPathCallPoint: EventBusConstants.PathWasSelected.CallPoint = EventBusConstants.PathWasSelected.CallPoint.AllItems
 
     @Inject
     lateinit var defaults: Defaults
@@ -65,10 +67,22 @@ internal class DashboardActivity : BaseActivity() {
             }
         }
 
+        pickPathLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree())
+        {
+            uri: Uri? -> EventBus.getDefault().post(EventBusConstants.PathWasSelected(uri, selectPathCallPoint))
+        }
+
         val onPickFile: (callPoint: CallPoint) -> Unit = { callPoint ->
             pickFileCallPoint = callPoint
             pickFileLauncher.launch(pickFileIntent())
         }
+
+        val onPathSelect: (callPoint: EventBusConstants.PathWasSelected.CallPoint) -> Unit = {
+            callPoint ->
+            selectPathCallPoint = callPoint
+            pickPathLauncher.launch(Uri.EMPTY)
+        }
+
         val onOpenFile: (file: File, mimeType: String) -> Unit = { file, mimeType ->
             val fileProviderAuthority = BuildConfig.APPLICATION_ID + ".provider"
             val resultUri = FileProvider.getUriForFile(this, fileProviderAuthority, file)
@@ -83,6 +97,7 @@ internal class DashboardActivity : BaseActivity() {
             val intent = Intent(Intent.ACTION_VIEW, uri)
             startActivity(intent)
         }
+
         val wasPspdfkitInitialized = defaults.wasPspdfkitInitialized()
 
         setContent {
@@ -95,9 +110,11 @@ internal class DashboardActivity : BaseActivity() {
                         onOpenFile = onOpenFile,
                         onOpenWebpage = onOpenWebpage,
                         wasPspdfkitInitialized = wasPspdfkitInitialized,
+                        onPathSelect = onPathSelect
                     )
                 } else {
                     DashboardRootPhoneNavigation(
+                        onPathSelect = onPathSelect,
                         onPickFile = onPickFile,
                         viewModel = viewModel,
                         onOpenFile = onOpenFile,
@@ -117,6 +134,7 @@ internal class DashboardActivity : BaseActivity() {
         }
         return Intent.createChooser(intent, "Pick File")
     }
+
 
     companion object {
         fun getIntentClearTask(

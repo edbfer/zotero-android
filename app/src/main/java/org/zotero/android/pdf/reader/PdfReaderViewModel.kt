@@ -175,6 +175,8 @@ class PdfReaderViewModel @Inject constructor(
     private lateinit var pdfThumbnailBar: PdfThumbnailBar
     private var isTablet: Boolean = false
 
+    private var requested_uri : Uri = Uri.EMPTY
+
     private val handler = Handler(context.mainLooper)
 
     //Used to recreate a new fragment preserving viewport state
@@ -314,6 +316,7 @@ class PdfReaderViewModel @Inject constructor(
         this.pdfThumbnailBar = pdfThumbnailBar
         this.containerId = containerId
         this.annotationMaxSideSize = annotationMaxSideSize
+        this.requested_uri = uri
 
         if (this::fragment.isInitialized) {
             replaceFragment()
@@ -432,7 +435,8 @@ class PdfReaderViewModel @Inject constructor(
 
     private fun loadRawDocument() {
         this.rawDocument =
-            PdfDocumentLoader.openDocument(context, this.document.documentSource.fileUri)
+            PdfDocumentLoader.openDocument(context, this.requested_uri)//this.document.documentSource.fileUri)
+
     }
 
     private fun setupInteractionListeners() {

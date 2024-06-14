@@ -28,6 +28,7 @@ internal fun SettingsScreen(
     onOpenWebpage: (uri: Uri) -> Unit,
     toAccountScreen: () -> Unit,
     toDebugScreen: () -> Unit,
+    toLinkedFilesScreen: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val backgroundColor = CustomTheme.colors.zoteroItemDetailSectionBackground
@@ -72,6 +73,14 @@ internal fun SettingsScreen(
                     SettingsItem(
                         title = stringResource(id = Strings.settings_sync_account),
                         onItemTapped = toAccountScreen,
+                        addNewScreenNavigationIndicator = true,
+                    )
+                }
+                Spacer(modifier = Modifier.height(30.dp))
+
+                SettingsSection {
+                    SettingsItem(title = stringResource(id = Strings.settings_linked_files_location),
+                        onItemTapped = toLinkedFilesScreen,
                         addNewScreenNavigationIndicator = true,
                     )
                 }

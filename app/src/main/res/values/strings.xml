@@ -13,6 +13,7 @@
     <string name="libraries">Libraries</string>
     <string name="settings_account_caps">ACCOUNT</string>
     <string name="settings_data_sync">DATA SYNC</string>
+    <string name="settings_linked_files">LINKED FILES LOCATION</string>
     <string name="tags_label">Tags:</string>
     <string name="no_tags">No Tags</string>
     <string name="no_comments">No Comments</string>

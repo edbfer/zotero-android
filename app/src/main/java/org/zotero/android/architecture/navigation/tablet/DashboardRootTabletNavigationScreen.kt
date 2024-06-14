@@ -1,6 +1,7 @@
 package org.zotero.android.architecture.navigation.tablet
 
 import android.net.Uri
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -30,6 +31,7 @@ import java.io.File
 
 @Composable
 internal fun DashboardRootTabletNavigationScreen(
+    onPathSelect: (callPoint: EventBusConstants.PathWasSelected.CallPoint) -> Unit,
     onPickFile: (callPoint: EventBusConstants.FileWasSelected.CallPoint) -> Unit,
     onOpenFile: (file: File, mimeType: String) -> Unit,
     onOpenWebpage: (uri: Uri) -> Unit,
@@ -62,7 +64,8 @@ internal fun DashboardRootTabletNavigationScreen(
                 Box(modifier = Modifier.weight(0.35f)) {
                     TabletLeftPaneNavigation(
                         navigateAndPopAllItemsScreen = navigateAndPopAllItemsScreen,
-                        onOpenWebpage = onOpenWebpage
+                        onOpenWebpage = onOpenWebpage,
+                        onPathSelect = onPathSelect
                     )
                 }
                 NewDivider(

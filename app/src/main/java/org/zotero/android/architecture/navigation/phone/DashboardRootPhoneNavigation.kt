@@ -1,5 +1,6 @@
 package org.zotero.android.architecture.navigation.phone
 
+import android.media.metrics.Event
 import android.net.Uri
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.foundation.background
@@ -18,6 +19,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import org.greenrobot.eventbus.EventBus
 import org.zotero.android.architecture.EventBusConstants
 import org.zotero.android.architecture.navigation.CommonScreenDestinations
 import org.zotero.android.architecture.navigation.DashboardTopLevelDialogs
@@ -63,6 +65,7 @@ internal const val ARG_ADD_BY_IDENTIFIER = "addByIdentifierArg"
 
 @Composable
 internal fun DashboardRootPhoneNavigation(
+    onPathSelect: (callPoint: EventBusConstants.PathWasSelected.CallPoint) -> Unit,
     onPickFile: (callPoint: EventBusConstants.FileWasSelected.CallPoint) -> Unit,
     onOpenFile: (file: File, mimeType: String) -> Unit,
     onOpenWebpage: (uri: Uri) -> Unit,
@@ -208,7 +211,7 @@ internal fun DashboardRootPhoneNavigation(
                 sortPickerNavScreens(navigation)
                 creatorEditNavScreens(navigation)
                 collectionEditNavScreens(navigation)
-                settingsNavScreens(navigation = navigation, onOpenWebpage = onOpenWebpage)
+                settingsNavScreens(navigation = navigation, onOpenWebpage = onOpenWebpage, onPathSelect = {onPathSelect(EventBusConstants.PathWasSelected.CallPoint.AllItems)})
 
                 videoPlayerScreen()
                 imageViewerScreen(onBack = navigation::onBack)
