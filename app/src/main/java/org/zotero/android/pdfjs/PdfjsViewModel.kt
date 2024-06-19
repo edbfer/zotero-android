@@ -64,7 +64,10 @@ class PdfjsViewModel @Inject constructor(
 
 data class PdfjsViewState(
     val key: String = "",
-    val isDark: Boolean = false
+    val isDark: Boolean = false,
+    val isTopBarVisible: Boolean = true,
+    val showSideBar: Boolean = false,
+    val showCreationToolbar: Boolean = false
 ) : ViewState {}
 
 sealed class PdfjsViewEffect : ViewEffect{

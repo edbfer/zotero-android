@@ -1,6 +1,7 @@
 package org.zotero.android.pdfjs
 
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
@@ -57,6 +58,22 @@ internal fun PdfjsScreen(
 
         CustomScaffold(
             backgroundColor = CustomTheme.colors.pdfAnnotationsTopbarBackground,
+            topBar = {
+                AnimatedContent(targetState = viewState.isTopBarVisible, label = "")
+                {isTopBarVisible ->
+                    if (isTopBarVisible)
+                    {
+                        PdfjsTopBar(
+                            onBack = onBack,
+                            onShowHideSideBar = { /*TODO*/ },
+                            toPdfSettings = { /*TODO*/ },
+                            toggleToolbarButton = { /*TODO*/ },
+                            isToolbarButtonSelected = viewState.showCreationToolbar,
+                            showSideBar = viewState.showSideBar
+                        )
+                    }
+                }
+            }
         )
         {
             if (layoutType.isTablet())

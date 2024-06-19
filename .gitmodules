@@ -4,3 +4,6 @@
 [submodule "translation/translate"]
 	path = translation/translate
 	url = https://github.com/zotero/translate.git
+[submodule "pdf_js"]
+	path = pdf_js
+	url = https://github.com/mozilla/pdf.js.git
