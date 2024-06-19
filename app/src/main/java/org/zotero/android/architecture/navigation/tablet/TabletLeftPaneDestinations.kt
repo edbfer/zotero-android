@@ -24,6 +24,7 @@ import org.zotero.android.uicomponents.navigation.ZoteroNavHost
 internal fun TabletLeftPaneNavigation(
     onPathSelect: (callPoint: EventBusConstants.PathWasSelected.CallPoint) -> Unit,
     onOpenWebpage: (uri: Uri) -> Unit,
+    navigatePdfjs: () -> Unit,
     navigateAndPopAllItemsScreen: () -> Unit,
 ) {
     val navController = rememberNavController()
@@ -62,7 +63,7 @@ internal fun TabletLeftPaneNavigation(
         dialogDynamicHeight(
             route = TabletLeftPaneDestinations.SETTINGS_NAVIGATION,
         ) {
-            SettingsNavigation(onOpenWebpage = onOpenWebpage, onPathSelect = {onPathSelect(EventBusConstants.PathWasSelected.CallPoint.AllItems)})
+            SettingsNavigation(onOpenWebpage = onOpenWebpage, onPathSelect = {onPathSelect(EventBusConstants.PathWasSelected.CallPoint.AllItems)}, navigatePdfjs = navigatePdfjs)
         }
     }
 }

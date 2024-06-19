@@ -83,6 +83,10 @@ internal class DashboardActivity : BaseActivity() {
             pickPathLauncher.launch(Uri.EMPTY)
         }
 
+        val navigatePdfjs: () -> Unit = {
+
+        }
+
         val onOpenFile: (file: File, mimeType: String) -> Unit = { file, mimeType ->
             val fileProviderAuthority = BuildConfig.APPLICATION_ID + ".provider"
             val resultUri = FileProvider.getUriForFile(this, fileProviderAuthority, file)
@@ -110,7 +114,8 @@ internal class DashboardActivity : BaseActivity() {
                         onOpenFile = onOpenFile,
                         onOpenWebpage = onOpenWebpage,
                         wasPspdfkitInitialized = wasPspdfkitInitialized,
-                        onPathSelect = onPathSelect
+                        onPathSelect = onPathSelect,
+                        navigatePdfjs = navigatePdfjs
                     )
                 } else {
                     DashboardRootPhoneNavigation(
@@ -120,6 +125,7 @@ internal class DashboardActivity : BaseActivity() {
                         onOpenFile = onOpenFile,
                         onOpenWebpage = onOpenWebpage,
                         wasPspdfkitInitialized = wasPspdfkitInitialized,
+                        navigatePdfjs = navigatePdfjs
                     )
                 }
 

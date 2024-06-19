@@ -68,6 +68,7 @@ internal fun DashboardRootPhoneNavigation(
     onPathSelect: (callPoint: EventBusConstants.PathWasSelected.CallPoint) -> Unit,
     onPickFile: (callPoint: EventBusConstants.FileWasSelected.CallPoint) -> Unit,
     onOpenFile: (file: File, mimeType: String) -> Unit,
+    navigatePdfjs: () -> Unit,
     onOpenWebpage: (uri: Uri) -> Unit,
     viewModel: DashboardViewModel,
     wasPspdfkitInitialized: Boolean,
@@ -211,7 +212,7 @@ internal fun DashboardRootPhoneNavigation(
                 sortPickerNavScreens(navigation)
                 creatorEditNavScreens(navigation)
                 collectionEditNavScreens(navigation)
-                settingsNavScreens(navigation = navigation, onOpenWebpage = onOpenWebpage, onPathSelect = {onPathSelect(EventBusConstants.PathWasSelected.CallPoint.AllItems)})
+                settingsNavScreens(navigation = navigation, onOpenWebpage = onOpenWebpage, onPathSelect = {onPathSelect(EventBusConstants.PathWasSelected.CallPoint.AllItems)}, navigatePdfjs = navigatePdfjs)
 
                 videoPlayerScreen()
                 imageViewerScreen(onBack = navigation::onBack)

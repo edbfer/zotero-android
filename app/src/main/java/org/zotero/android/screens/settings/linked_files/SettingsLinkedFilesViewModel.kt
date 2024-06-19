@@ -167,10 +167,16 @@ internal class SettingsLinkedFilesViewModel @Inject constructor(
         onPathSelect()
     }
 
+    fun onNavigatePdfjs(navigatePdfjs: () -> Unit)
+    {
+        navigatePdfjs()
+    }
+
 }
 
 internal data class SettingsLinkedFilesViewState(
     val root_path: String = "",
+    val navigate_pdfjs: String = ""
 ) : ViewState
 
 internal sealed class SettingsLinkedFilesViewEffect : ViewEffect {

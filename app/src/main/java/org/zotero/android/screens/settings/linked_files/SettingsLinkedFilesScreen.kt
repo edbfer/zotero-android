@@ -32,6 +32,7 @@ import org.zotero.android.uicomponents.theme.CustomThemeWithStatusAndNavBars
 internal fun SettingsLinkedFilesScreen(
     onBack: () -> Unit,
     onPathSelect: () -> Unit,
+    navigatePdfjs: () -> Unit,
     viewModel: SettingsLinkedFilesViewModel = hiltViewModel(),
 ) {
     val backgroundColor = CustomTheme.colors.zoteroItemDetailSectionBackground
@@ -71,6 +72,12 @@ internal fun SettingsLinkedFilesScreen(
                 SettingsSection {
                     SettingsItem(title = viewState.root_path
                         , onItemTapped = {viewModel.onPathSelection(onPathSelect)})
+                }
+                Spacer(modifier = Modifier.height(30.dp))
+                SettingsSectionTitle(titleId = Strings.settings_linked_files_testpdfjs)
+                SettingsSection {
+                    SettingsItem(title = viewState.navigate_pdfjs,
+                        onItemTapped = {viewModel.onNavigatePdfjs(navigatePdfjs)})
                 }
             }
         }

@@ -21,6 +21,8 @@ import org.zotero.android.architecture.navigation.toZoteroWebViewScreen
 import org.zotero.android.architecture.navigation.zoterWebViewScreen
 import org.zotero.android.pdf.pdfReaderScreenAndNavigationForTablet
 import org.zotero.android.pdf.toPdfScreen
+import org.zotero.android.pdfjs.pdfjsScreenAndNavigationTablet
+import org.zotero.android.pdfjs.toPdfjsScreen
 import org.zotero.android.screens.dashboard.DashboardViewModel
 import org.zotero.android.screens.tagpicker.TagPickerScreen
 import org.zotero.android.uicomponents.navigation.ZoteroNavHost
@@ -32,6 +34,7 @@ internal fun DashboardRootTopLevelTabletNavigation(
     onPickFile: (callPoint: EventBusConstants.FileWasSelected.CallPoint) -> Unit,
     onOpenFile: (file: File, mimeType: String) -> Unit,
     onOpenWebpage: (uri: Uri) -> Unit,
+    navigatePdfjs: () -> Unit,
     viewModel: DashboardViewModel,
     wasPspdfkitInitialized: Boolean,
 
@@ -62,12 +65,16 @@ internal fun DashboardRootTopLevelTabletNavigation(
             },
             toAddOrEditNote = navigation::toAddOrEditNote,
             toZoteroWebViewScreen = navigation::toZoteroWebViewScreen,
-            onPathSelect = onPathSelect
+            onPathSelect = onPathSelect,
+            navigatePdfjs = {navigation.toPdfjsScreen(
+                context = context
+            )}
         )
         pdfReaderScreenAndNavigationForTablet(
             navigation = navigation,
             navigateToTagPickerDialog = navigation::toTagPickerDialog
         )
+        pdfjsScreenAndNavigationTablet(navigation = navigation)
         tagPickerScreen(onBack = navigation::onBack)
         tagPickerDialog(onBack = navigation::onBack)
         addNoteScreen(
@@ -83,6 +90,7 @@ private fun NavGraphBuilder.dashboardScreen(
     onPickFile: (callPoint: EventBusConstants.FileWasSelected.CallPoint) -> Unit,
     onOpenFile: (file: File, mimeType: String) -> Unit,
     onShowPdf: (String) -> Unit,
+    navigatePdfjs: () -> Unit,
     toAddOrEditNote: () -> Unit,
     toZoteroWebViewScreen: (String) -> Unit,
     onOpenWebpage: (uri: Uri) -> Unit,
@@ -100,6 +108,7 @@ private fun NavGraphBuilder.dashboardScreen(
             toZoteroWebViewScreen = toZoteroWebViewScreen,
             onOpenWebpage = onOpenWebpage,
             viewModel = viewModel,
+            navigatePdfjs = navigatePdfjs,
             onPathSelect = onPathSelect
         )
     }

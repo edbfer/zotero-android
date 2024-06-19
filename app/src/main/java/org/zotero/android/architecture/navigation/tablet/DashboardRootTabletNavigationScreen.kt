@@ -36,6 +36,7 @@ internal fun DashboardRootTabletNavigationScreen(
     onOpenFile: (file: File, mimeType: String) -> Unit,
     onOpenWebpage: (uri: Uri) -> Unit,
     onShowPdf: (String) -> Unit,
+    navigatePdfjs: () -> Unit,
     toAddOrEditNote: () -> Unit,
     toZoteroWebViewScreen: (String) -> Unit,
     viewModel: DashboardViewModel,
@@ -65,7 +66,8 @@ internal fun DashboardRootTabletNavigationScreen(
                     TabletLeftPaneNavigation(
                         navigateAndPopAllItemsScreen = navigateAndPopAllItemsScreen,
                         onOpenWebpage = onOpenWebpage,
-                        onPathSelect = onPathSelect
+                        onPathSelect = onPathSelect,
+                        navigatePdfjs = navigatePdfjs
                     )
                 }
                 NewDivider(

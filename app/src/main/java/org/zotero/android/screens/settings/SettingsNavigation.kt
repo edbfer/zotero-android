@@ -23,7 +23,8 @@ import org.zotero.android.uicomponents.navigation.ZoteroNavHost
 @Composable
 internal fun SettingsNavigation(
     onOpenWebpage: (uri: Uri) -> Unit,
-    onPathSelect: () -> Unit
+    onPathSelect: () -> Unit,
+    navigatePdfjs: () -> Unit
     ) {
     val navController = rememberNavController()
     val dispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
@@ -35,14 +36,15 @@ internal fun SettingsNavigation(
         startDestination = SettingsDestinations.SETTINGS,
         modifier = Modifier.navigationBarsPadding(), // do not draw behind nav bar
     ) {
-        settingsNavScreens(navigation = navigation, onOpenWebpage = onOpenWebpage, onPathSelect = onPathSelect)
+        settingsNavScreens(navigation = navigation, onOpenWebpage = onOpenWebpage, onPathSelect = onPathSelect, navigatePdfjs = navigatePdfjs)
     }
 }
 
 internal fun NavGraphBuilder.settingsNavScreens(
     navigation: ZoteroNavigation,
     onOpenWebpage: (uri: Uri) -> Unit,
-    onPathSelect: () -> Unit
+    onPathSelect: () -> Unit,
+    navigatePdfjs: () -> Unit
 ) {
     settingsScreen(
         onBack = navigation::onBack,
@@ -53,7 +55,7 @@ internal fun NavGraphBuilder.settingsNavScreens(
         toLinkedFilesScreen = navigation::toLinkedFilesScreen
     )
     accountScreen(onBack = navigation::onBack, onOpenWebpage = onOpenWebpage)
-    linkedFilesScreen(onBack = navigation::onBack, onPathSelect = onPathSelect)
+    linkedFilesScreen(onBack = navigation::onBack, onPathSelect = onPathSelect, navigatePdfjs = navigatePdfjs)
     debugScreen(onBack = navigation::onBack, toDebugLogScreen = navigation::toDebugLogScreen)
     debugLogScreen(onBack = navigation::onBack)
 }
@@ -113,13 +115,14 @@ private fun NavGraphBuilder.debugLogScreen(
 
 private fun NavGraphBuilder.linkedFilesScreen(
     onBack: () -> Unit,
-    onPathSelect: () -> Unit
+    onPathSelect: () -> Unit,
+    navigatePdfjs: () -> Unit,
 )
 {
     composable(
         route = SettingsDestinations.LINKED_FILES,
     )   {
-        SettingsLinkedFilesScreen(onBack = onBack, onPathSelect = onPathSelect)
+        SettingsLinkedFilesScreen(onBack = onBack, onPathSelect = onPathSelect, navigatePdfjs = navigatePdfjs)
     }
 }
 
