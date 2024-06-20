@@ -6,6 +6,7 @@ import android.net.Uri
 import android.util.Log
 import android.webkit.MimeTypeMap
 import android.widget.Toast
+import androidx.compose.animation.defaultDecayAnimationSpec
 import androidx.core.net.toFile
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
@@ -68,6 +69,7 @@ import org.zotero.android.helpers.formatter.iso8601DateFormatV2
 import org.zotero.android.helpers.formatter.sqlFormat
 import org.zotero.android.ktx.index
 import org.zotero.android.pdf.data.PdfReaderArgs
+import org.zotero.android.pdfjs.PdfjsReaderArgs
 import org.zotero.android.screens.addnote.data.AddOrEditNoteArgs
 import org.zotero.android.screens.addnote.data.SaveNoteAction
 import org.zotero.android.screens.creatoredit.data.CreatorEditArgs
@@ -1595,7 +1597,11 @@ class ItemDetailsViewModel @Inject constructor(
                 }
 
                 Log.w("Testtest", file!!.canRead().toString())
-                showPdffromuri(uri = file.uri, attachment = attachment)
+
+                if(!defaults.getUsePdfjsReader())
+                    showPdffromuri(uri = file.uri, attachment = attachment)
+                else
+                    showPdfjsfromuri(uri = file.uri, attachment = attachment)
             }
             else ->
             {
@@ -1673,6 +1679,15 @@ class ItemDetailsViewModel @Inject constructor(
         )
         val params = navigationParamsMarshaller.encodeObjectToBase64(pdfReaderArgs)
         triggerEffect(NavigateToPdfScreen(params))
+    }
+
+    private fun showPdfjsfromuri(uri: Uri, attachment: Attachment)
+    {
+        val pdfjsReaderArgs = PdfjsReaderArgs(
+            path = uri.toString()
+        )
+        val params = navigationParamsMarshaller.encodeObjectToBase64(pdfjsReaderArgs)
+        triggerEffect(ItemDetailsViewEffect.NavigateToPdfjsScreen(params))
     }
 
     private fun openFile(file: File, mime: String) {
@@ -2079,6 +2094,7 @@ sealed class ItemDetailsViewEffect : ViewEffect {
     object ShowImageViewer : ItemDetailsViewEffect()
     data class OpenFile(val file: File, val mimeType: String) : ItemDetailsViewEffect()
     data class NavigateToPdfScreen(val params: String) : ItemDetailsViewEffect()
+    data class NavigateToPdfjsScreen(val params: String) : ItemDetailsViewEffect()
     data class OpenWebpage(val uri: Uri) : ItemDetailsViewEffect()
     data class ShowZoteroWebView(val url: String) : ItemDetailsViewEffect()
     object AddAttachment : ItemDetailsViewEffect()

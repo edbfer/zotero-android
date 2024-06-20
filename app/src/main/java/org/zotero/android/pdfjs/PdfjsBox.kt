@@ -1,5 +1,6 @@
 package org.zotero.android.pdfjs
 
+import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -12,6 +13,7 @@ import androidx.compose.ui.unit.Density
 
 @Composable
 internal fun PdfjsBox(
+    path: String,
     viewState: PdfjsViewState,
     viewModel: PdfjsViewModel
 )
@@ -24,7 +26,10 @@ internal fun PdfjsBox(
             .fillMaxSize()
     )
     {
-        PdfjsView(viewModel = viewModel)
+        PdfjsView(
+            viewModel = viewModel,
+            path = path
+        )
     }
 
 }

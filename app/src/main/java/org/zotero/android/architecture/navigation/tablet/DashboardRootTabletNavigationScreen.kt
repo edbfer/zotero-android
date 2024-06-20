@@ -35,6 +35,7 @@ internal fun DashboardRootTabletNavigationScreen(
     onPickFile: (callPoint: EventBusConstants.FileWasSelected.CallPoint) -> Unit,
     onOpenFile: (file: File, mimeType: String) -> Unit,
     onOpenWebpage: (uri: Uri) -> Unit,
+    onShowPdfjs: (String) -> Unit,
     onShowPdf: (String) -> Unit,
     navigatePdfjs: () -> Unit,
     toAddOrEditNote: () -> Unit,
@@ -79,6 +80,7 @@ internal fun DashboardRootTabletNavigationScreen(
                     TabletRightPaneNavigation(
                         onPickFile = onPickFile,
                         onOpenFile = onOpenFile,
+                        onShowPdfjs = onShowPdfjs,
                         onShowPdf = onShowPdf,
                         onOpenWebpage = onOpenWebpage,
                         toAddOrEditNote = toAddOrEditNote,

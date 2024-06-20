@@ -115,7 +115,6 @@ internal class DashboardActivity : BaseActivity() {
                         onOpenWebpage = onOpenWebpage,
                         wasPspdfkitInitialized = wasPspdfkitInitialized,
                         onPathSelect = onPathSelect,
-                        navigatePdfjs = navigatePdfjs
                     )
                 } else {
                     DashboardRootPhoneNavigation(

@@ -41,6 +41,7 @@ import org.zotero.android.architecture.navigation.videoPlayerScreen
 import org.zotero.android.architecture.navigation.zoterWebViewScreen
 import org.zotero.android.pdf.pdfReaderNavScreensForPhone
 import org.zotero.android.pdf.toPdfScreen
+import org.zotero.android.pdfjs.toPdfjsScreen
 import org.zotero.android.screens.collectionedit.collectionEditNavScreens
 import org.zotero.android.screens.collectionedit.toCollectionEditScreen
 import org.zotero.android.screens.collectionpicker.CollectionPickerScreen
@@ -150,6 +151,12 @@ internal fun DashboardRootPhoneNavigation(
                     onOpenFile = onOpenFile,
                     onOpenWebpage = onOpenWebpage,
                     onPickFile = { onPickFile(EventBusConstants.FileWasSelected.CallPoint.ItemDetails) },
+                    onShowPdfjs = { pdfjsScreenParams ->
+                        navigation.toPdfjsScreen(
+                            context = context,
+                            pdfjsScreenParams = pdfjsScreenParams
+                        )
+                    },
                     onShowPdf = { pdfScreenParams ->
                         navigation.toPdfScreen(
                             context = context,

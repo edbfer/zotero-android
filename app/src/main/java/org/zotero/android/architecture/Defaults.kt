@@ -22,6 +22,7 @@ open class Defaults @Inject constructor(
     private val name = "name"
     private val username = "username"
     private val rootLinkedFilesPath = "root_lf_path"
+    private val usePdfjsreader = "usePdfjsReader"
     private val displayName = "displayName"
     private val apiToken = "apiToken"
     private val webDavPassword = "webDavPassword"
@@ -129,6 +130,19 @@ open class Defaults @Inject constructor(
         sharedPreferences.edit(commit = true) {
             remove(rootLinkedFilesPath)
             putString(rootLinkedFilesPath, uri.toString())}
+    }
+
+    fun setUsePdfjsReader(bool: Boolean)
+    {
+        sharedPreferences.edit(commit = true)
+        {
+            putBoolean(usePdfjsreader, bool)
+        }
+    }
+
+    fun getUsePdfjsReader() : Boolean
+    {
+        return sharedPreferences.getBoolean(usePdfjsreader, false)
     }
 
     fun setDisplayName(str: String) {

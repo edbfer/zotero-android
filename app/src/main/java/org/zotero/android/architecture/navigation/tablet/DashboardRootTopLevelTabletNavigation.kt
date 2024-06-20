@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import org.zotero.android.architecture.EventBusConstants
 import org.zotero.android.architecture.navigation.ZoteroNavigation
@@ -34,7 +35,6 @@ internal fun DashboardRootTopLevelTabletNavigation(
     onPickFile: (callPoint: EventBusConstants.FileWasSelected.CallPoint) -> Unit,
     onOpenFile: (file: File, mimeType: String) -> Unit,
     onOpenWebpage: (uri: Uri) -> Unit,
-    navigatePdfjs: () -> Unit,
     viewModel: DashboardViewModel,
     wasPspdfkitInitialized: Boolean,
 
@@ -66,8 +66,15 @@ internal fun DashboardRootTopLevelTabletNavigation(
             toAddOrEditNote = navigation::toAddOrEditNote,
             toZoteroWebViewScreen = navigation::toZoteroWebViewScreen,
             onPathSelect = onPathSelect,
+            onShowPdfjs = { pdfjsScreenParams ->
+                navigation.toPdfjsScreen(
+                    context = context,
+                    pdfjsScreenParams = pdfjsScreenParams
+                )
+            },
             navigatePdfjs = {navigation.toPdfjsScreen(
-                context = context
+                context = context,
+                pdfjsScreenParams = ""
             )}
         )
         pdfReaderScreenAndNavigationForTablet(
@@ -89,6 +96,7 @@ private fun NavGraphBuilder.dashboardScreen(
     onPathSelect: (callPoint: EventBusConstants.PathWasSelected.CallPoint) -> Unit,
     onPickFile: (callPoint: EventBusConstants.FileWasSelected.CallPoint) -> Unit,
     onOpenFile: (file: File, mimeType: String) -> Unit,
+    onShowPdfjs: (String) -> Unit,
     onShowPdf: (String) -> Unit,
     navigatePdfjs: () -> Unit,
     toAddOrEditNote: () -> Unit,
@@ -109,7 +117,8 @@ private fun NavGraphBuilder.dashboardScreen(
             onOpenWebpage = onOpenWebpage,
             viewModel = viewModel,
             navigatePdfjs = navigatePdfjs,
-            onPathSelect = onPathSelect
+            onShowPdfjs = onShowPdfjs,
+            onPathSelect = onPathSelect,
         )
     }
 }

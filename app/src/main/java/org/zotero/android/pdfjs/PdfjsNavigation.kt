@@ -2,14 +2,18 @@ package org.zotero.android.pdfjs
 
 import android.content.Context
 import androidx.navigation.NavGraphBuilder
+import androidx.navigation.NavType
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
 import org.zotero.android.architecture.navigation.ZoteroNavigation
 
 internal fun NavGraphBuilder.pdfjsScreenAndNavigationTablet(
     navigation: ZoteroNavigation
 )
 {
-    pdfjsScreen(onBack = navigation::onBack)
+    pdfjsScreen(
+        onBack = navigation::onBack
+    )
 }
 
 internal fun NavGraphBuilder.pdfjsScreenAndNavigationPhone(
@@ -24,10 +28,11 @@ private object PdfjsDestinations {
 }
 
 fun ZoteroNavigation.toPdfjsScreen(
-    context: Context
+    context: Context,
+    pdfjsScreenParams: String
 )
 {
-    navController.navigate(PdfjsDestinations.PDFJS_SCREEN)
+    navController.navigate("${PdfjsDestinations.PDFJS_SCREEN}/$pdfjsScreenParams")
 }
 
 private fun NavGraphBuilder.pdfjsScreen(
@@ -35,9 +40,14 @@ private fun NavGraphBuilder.pdfjsScreen(
 )
 {
     composable(
-        route = PdfjsDestinations.PDFJS_SCREEN
+        route = "${PdfjsDestinations.PDFJS_SCREEN}/{pdfjsScreenArgs}",
+        arguments = listOf (
+            navArgument("pdfjsScreenArgs") {type = NavType.StringType}
+        ),
     )
     {
-        PdfjsScreen(onBack = onBack)
+        PdfjsScreen(
+            onBack = onBack
+        )
     }
 }

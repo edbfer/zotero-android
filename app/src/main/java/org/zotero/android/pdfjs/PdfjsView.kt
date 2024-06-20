@@ -1,5 +1,6 @@
 package org.zotero.android.pdfjs
 
+import android.net.Uri
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,7 +13,10 @@ import org.zotero.android.R
 import org.zotero.android.architecture.ui.CustomLayoutSize
 
 @Composable
-fun PdfjsView(viewModel: PdfjsViewModel)
+fun PdfjsView(
+    path: String,
+    viewModel: PdfjsViewModel
+)
 {
     val activity = LocalContext.current as? AppCompatActivity ?: return
     val fragmentManager = activity.supportFragmentManager
@@ -32,7 +36,8 @@ fun PdfjsView(viewModel: PdfjsViewModel)
             viewModel.init(
                 isTablet = layoutType.isTablet(),
                 containerId = fragmentContainerView.id,
-                fragmentManager = fragmentManager
+                fragmentManager = fragmentManager,
+                path = path
             )
             frameLayout
         },

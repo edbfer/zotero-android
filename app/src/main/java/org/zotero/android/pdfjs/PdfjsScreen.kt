@@ -1,5 +1,6 @@
 package org.zotero.android.pdfjs
 
+import android.net.Uri
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.lazy.LazyListState
@@ -41,7 +42,7 @@ internal fun PdfjsScreen(
     }
 
     CustomThemeWithStatusAndNavBars(isDarkTheme = viewState.isDark) {
-        //val params = viewModel.screenArgs
+        val params = viewModel.screenArgs
         val lazyListState = rememberLazyListState()
         val layoutType = CustomLayoutSize.calculateLayoutType()
         val focusRequester: FocusRequester = remember { FocusRequester() }
@@ -79,6 +80,7 @@ internal fun PdfjsScreen(
             if (layoutType.isTablet())
             {
                 PdfjsTabletMode(
+                    path = params.path,
                     viewState = viewState,
                     viewModel = viewModel,
                     lazyListState = lazyListState,
@@ -90,6 +92,7 @@ internal fun PdfjsScreen(
             {
                 //TODO: Phone layout
                 PdfjsTabletMode(
+                    path = params.path,
                     viewState = viewState,
                     viewModel = viewModel,
                     lazyListState = lazyListState,
@@ -103,6 +106,7 @@ internal fun PdfjsScreen(
 
 @Composable
 private fun PdfjsTabletMode(
+    path: String,
     viewState: PdfjsViewState,
     viewModel: PdfjsViewModel,
     lazyListState: LazyListState,
@@ -111,6 +115,7 @@ private fun PdfjsTabletMode(
 )
 {
     PdfjsBox(
+        path = path,
         viewModel = viewModel,
         viewState = viewState
     )

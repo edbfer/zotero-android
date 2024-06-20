@@ -13,7 +13,7 @@ internal fun SettingsAccountTopBar(
 ) {
     NewCustomTopBar(
         backgroundColor = CustomTheme.colors.surface,
-        title = stringResource(id = Strings.settings_sync_account),
+        title = stringResource(id = Strings.settings_linked_files),
         leftContainerContent = listOf {
             NewHeadingTextButton(
                 onClick = onBack,

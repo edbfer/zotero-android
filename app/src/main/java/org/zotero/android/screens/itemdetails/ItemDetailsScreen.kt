@@ -32,6 +32,7 @@ internal fun ItemDetailsScreen(
     navigateToZoterWebViewScreen: (String) -> Unit,
     onBack: () -> Unit,
     onOpenFile: (file: File, mimeType: String) -> Unit,
+    onShowPdfjs: (String) -> Unit,
     onShowPdf: (String) -> Unit,
     onOpenWebpage: (uri: Uri) -> Unit,
     onPickFile: () -> Unit,
@@ -80,6 +81,11 @@ internal fun ItemDetailsScreen(
 
                 is ItemDetailsViewEffect.NavigateToPdfScreen -> {
                     onShowPdf(consumedEffect.params)
+                }
+
+                is ItemDetailsViewEffect.NavigateToPdfjsScreen ->
+                {
+                    onShowPdfjs(consumedEffect.params)
                 }
 
                 is ItemDetailsViewEffect.OpenWebpage -> {

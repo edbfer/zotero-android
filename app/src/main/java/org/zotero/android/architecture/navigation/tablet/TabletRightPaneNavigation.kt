@@ -36,6 +36,7 @@ import java.io.File
 internal fun TabletRightPaneNavigation(
     onPickFile: (callPoint: CallPoint) -> Unit,
     onOpenFile: (file: File, mimeType: String) -> Unit,
+    onShowPdfjs: (String) -> Unit,
     onShowPdf: (String) -> Unit,
     toAddOrEditNote: () -> Unit,
     toZoteroWebViewScreen: (String) -> Unit,
@@ -80,6 +81,7 @@ internal fun TabletRightPaneNavigation(
             onOpenFile = onOpenFile,
             onOpenWebpage = onOpenWebpage,
             onPickFile = { onPickFile(CallPoint.ItemDetails) },
+            onShowPdfjs = onShowPdfjs,
             onShowPdf = onShowPdf,
         )
         videoPlayerScreen()

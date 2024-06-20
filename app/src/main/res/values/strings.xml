@@ -15,6 +15,7 @@
     <string name="settings_data_sync">DATA SYNC</string>
     <string name="settings_linked_files">LINKED FILES LOCATION</string>
     <string name="settings_linked_files_testpdfjs">Navigate to PDF.js</string>
+    <string name="settings_use_pdfjs">Use PDF.js</string>
     <string name="tags_label">Tags:</string>
     <string name="no_tags">No Tags</string>
     <string name="no_comments">No Comments</string>

@@ -73,6 +73,7 @@ fun NavGraphBuilder.itemDetailsScreen(
     onOpenFile: (file: File, mimeType: String) -> Unit,
     onOpenWebpage: (uri: Uri) -> Unit,
     onPickFile: () -> Unit,
+    onShowPdfjs: (String) -> Unit,
     onShowPdf: (String) -> Unit,
 ) {
     composable(
@@ -91,6 +92,7 @@ fun NavGraphBuilder.itemDetailsScreen(
             onOpenFile = onOpenFile,
             onOpenWebpage = onOpenWebpage,
             onPickFile = onPickFile,
+            onShowPdfjs = onShowPdfjs,
             onShowPdf = onShowPdf
         )
     }

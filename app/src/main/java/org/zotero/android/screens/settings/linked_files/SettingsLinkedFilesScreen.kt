@@ -78,6 +78,11 @@ internal fun SettingsLinkedFilesScreen(
                 SettingsSection {
                     SettingsItem(title = viewState.navigate_pdfjs,
                         onItemTapped = {viewModel.onNavigatePdfjs(navigatePdfjs)})
+                    
+                }
+                SettingsSectionTitle(titleId = Strings.settings_use_pdfjs)
+                SettingsSection {
+                    SettingsItem(title = viewState.use_pdfjs.toString(), onItemTapped = viewModel::onUsePdfjs)
                 }
             }
         }

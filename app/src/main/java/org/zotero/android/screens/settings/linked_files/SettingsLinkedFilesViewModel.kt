@@ -172,11 +172,21 @@ internal class SettingsLinkedFilesViewModel @Inject constructor(
         navigatePdfjs()
     }
 
+    fun onUsePdfjs()
+    {
+        val bool = defaults.getUsePdfjsReader()
+        defaults.setUsePdfjsReader(!bool)
+        updateState {
+            copy(use_pdfjs = !bool)
+        }
+    }
+
 }
 
 internal data class SettingsLinkedFilesViewState(
     val root_path: String = "",
-    val navigate_pdfjs: String = ""
+    val navigate_pdfjs: String = "",
+    val use_pdfjs: Boolean = true
 ) : ViewState
 
 internal sealed class SettingsLinkedFilesViewEffect : ViewEffect {
