@@ -35,8 +35,9 @@ import org.zotero.android.R
 import org.zotero.android.androidx.content.pxToDp
 import org.zotero.android.database.objects.AnnotationType
 import org.zotero.android.pdf.data.Annotation
-import org.zotero.android.pdf.reader.PdfReaderViewModel
 import org.zotero.android.pdf.reader.PdfReaderViewState
+import org.zotero.android.pdfjs.PdfjsViewModel
+import org.zotero.android.pdfjs.PdfjsViewState
 import org.zotero.android.uicomponents.Drawables
 import org.zotero.android.uicomponents.Strings
 import org.zotero.android.uicomponents.foundation.safeClickable
@@ -44,9 +45,9 @@ import org.zotero.android.uicomponents.textinput.CustomTextField
 import org.zotero.android.uicomponents.theme.CustomTheme
 
 @Composable
-internal fun SidebarHeaderSection(
-    viewModel: PdfReaderViewModel,
-    viewState: PdfReaderViewState,
+internal fun PdfjsSidebarHeaderSection(
+    viewModel: PdfjsViewModel,
+    viewState: PdfjsViewState,
     annotation: Annotation,
     annotationColor: Color,
 ) {
@@ -96,27 +97,27 @@ internal fun SidebarHeaderSection(
 }
 
 @Composable
-internal fun SidebarTagsAndCommentsSection(
+internal fun PdfjsSidebarTagsAndCommentsSection(
     annotation: Annotation,
-    viewModel: PdfReaderViewModel,
-    viewState: PdfReaderViewState,
+    viewModel: PdfjsViewModel,
+    viewState: PdfjsViewState,
     focusRequester: FocusRequester,
     shouldAddTopPadding: Boolean,
 ) {
-    SidebarCommentSection(
+    PdfjsSidebarCommentSection(
         viewModel = viewModel,
         annotation = annotation,
         viewState = viewState,
         focusRequester = focusRequester,
         shouldAddTopPadding = shouldAddTopPadding
     )
-    SidebarTagsSection(viewModel = viewModel, viewState = viewState, annotation = annotation)
+    PdfjsSidebarTagsSection(viewModel = viewModel, viewState = viewState, annotation = annotation)
 }
 
 @Composable
-private fun SidebarCommentSection(
-    viewModel: PdfReaderViewModel,
-    viewState: PdfReaderViewState,
+private fun PdfjsSidebarCommentSection(
+    viewModel: PdfjsViewModel,
+    viewState: PdfjsViewState,
     annotation: Annotation,
     shouldAddTopPadding: Boolean,
     focusRequester: FocusRequester
@@ -157,16 +158,16 @@ private fun SidebarCommentSection(
 }
 
 @Composable
-internal fun SidebarTagsSection(
-    viewModel: PdfReaderViewModel,
-    viewState: PdfReaderViewState,
+internal fun PdfjsSidebarTagsSection(
+    viewModel: PdfjsViewModel,
+    viewState: PdfjsViewState,
     annotation: Annotation,
 ) {
     val isSelected = viewState.isAnnotationSelected(annotation.key)
     val areTagsPresent = annotation.tags.isNotEmpty()
     val shouldDisplayTagsSection = isSelected || areTagsPresent
     if (shouldDisplayTagsSection) {
-        SidebarDivider()
+        PdfjsSidebarDivider()
     }
     if (shouldDisplayTagsSection) {
         Box(modifier = Modifier
@@ -202,7 +203,7 @@ internal fun SidebarTagsSection(
 }
 
 @Composable
-internal fun SidebarHighlightedTextSection(
+internal fun PdfjsSidebarHighlightedTextSection(
     annotationColor: Color,
     annotation: Annotation,
 ) {
@@ -228,9 +229,9 @@ internal fun SidebarHighlightedTextSection(
 }
 
 @Composable
-internal fun SidebarImageSection(
+internal fun PdfjsSidebarImageSection(
     loadPreview: () -> Bitmap?,
-    viewModel: PdfReaderViewModel
+    viewModel: PdfjsViewModel
 ) {
     val cachedBitmap = loadPreview()
     if (cachedBitmap != null) {

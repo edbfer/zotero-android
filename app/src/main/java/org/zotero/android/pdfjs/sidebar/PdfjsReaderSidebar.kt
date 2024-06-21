@@ -23,18 +23,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import org.zotero.android.architecture.ui.CustomLayoutSize
 import org.zotero.android.database.objects.AnnotationType
-import org.zotero.android.pdf.reader.PdfReaderBottomPanel
-import org.zotero.android.pdf.reader.PdfReaderViewModel
-import org.zotero.android.pdf.reader.PdfReaderViewState
-import org.zotero.android.pdf.reader.PdfSidebarSearchBar
+import org.zotero.android.pdfjs.PdfjsViewModel
+import org.zotero.android.pdfjs.PdfjsViewState
+import org.zotero.android.pdfjs.sidebar.PdfjsSidebarSearchBar
 import org.zotero.android.uicomponents.foundation.safeClickable
 import org.zotero.android.uicomponents.theme.CustomTheme
 
 @Composable
-internal fun PdfReaderSidebar(
-    viewState: PdfReaderViewState,
+internal fun PdfjsReaderSidebar(
+    viewState: PdfjsViewState,
     layoutType: CustomLayoutSize.LayoutType,
-    viewModel: PdfReaderViewModel,
+    viewModel: PdfjsViewModel,
     focusRequester: FocusRequester,
     lazyListState: LazyListState
 ) {
@@ -49,7 +48,7 @@ internal fun PdfReaderSidebar(
                 .padding(bottom = layoutType.calculateAllItemsBottomPanelHeight())
         ) {
             Spacer(modifier = Modifier.height(16.dp))
-            PdfSidebarSearchBar(viewState = viewState, viewModel = viewModel)
+            PdfjsSidebarSearchBar(viewState = viewState, viewModel = viewModel)
             Spacer(modifier = Modifier.height(8.dp))
             LazyColumn(
                 state = lazyListState,
@@ -93,24 +92,24 @@ internal fun PdfReaderSidebar(
                             preview
                         }
 
-                        SidebarHeaderSection(
+                        PdfjsSidebarHeaderSection(
                             annotation = annotation,
                             annotationColor = annotationColor,
                             viewState = viewState,
                             viewModel = viewModel,
                         )
-                        SidebarDivider()
+                        PdfjsSidebarDivider()
 //                        Spacer(modifier = Modifier.height(8.dp))
 
                         when (annotation.type) {
-                            AnnotationType.note -> SidebarNoteRow(
+                            AnnotationType.note -> PdfjsSidebarNoteRow(
                                 annotation = annotation,
                                 viewModel = viewModel,
                                 viewState = viewState,
                                 focusRequester = focusRequester,
                             )
 
-                            AnnotationType.highlight -> SidebarHighlightRow(
+                            AnnotationType.highlight -> PdfjsSidebarHighlightRow(
                                 annotation = annotation,
                                 annotationColor = annotationColor,
                                 viewModel = viewModel,
@@ -118,14 +117,14 @@ internal fun PdfReaderSidebar(
                                 focusRequester = focusRequester,
                             )
 
-                            AnnotationType.ink -> SidebarInkRow(
+                            AnnotationType.ink -> PdfjsSidebarInkRow(
                                 viewModel = viewModel,
                                 viewState = viewState,
                                 annotation = annotation,
                                 loadPreview = loadPreview,
                             )
 
-                            AnnotationType.image -> SidebarImageRow(
+                            AnnotationType.image -> PdfjsSidebarImageRow(
                                 viewModel = viewModel,
                                 viewState = viewState,
                                 annotation = annotation,
@@ -137,7 +136,7 @@ internal fun PdfReaderSidebar(
                 }
             }
         }
-        PdfReaderBottomPanel(
+        PdfjsReaderBottomPanel(
             layoutType = layoutType,
             viewModel = viewModel,
             viewState = viewState

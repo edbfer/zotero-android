@@ -1,10 +1,12 @@
 package org.zotero.android.pdfjs
 
+import android.content.Context
 import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -31,6 +33,8 @@ class PdfjsFragment @Inject constructor(
 ) : Fragment(R.layout.pdfjs_fragment)
 {
     private lateinit var rootView: View
+    private lateinit var webView: WebView
+    private var isPdfLoaded: Boolean = true
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -42,10 +46,31 @@ class PdfjsFragment @Inject constructor(
     }
 
     @OptIn(ExperimentalEncodingApi::class)
+    fun callbackOnPageLoaded()
+    {
+        if(!isPdfLoaded) {
+            Timber.e("Page Loaded!")
+
+            val docFile = DocumentFile.fromTreeUri(requireContext(), Uri.parse(path))
+            val stream = requireContext().contentResolver.openInputStream(Uri.parse(path))
+            val encodedData = Base64.encode(stream!!.readBytes())
+
+            //HIDE TOOLBAR
+            this.webView.evaluateJavascript("document.getElementById('toolbarContainer').hidden = true;", null)
+            this.webView.evaluateJavascript(
+                "d = atob('${encodedData}'); PDFViewerApplication.open({data: d});")
+                {result ->
+                    if(result != null)
+                        this.isPdfLoaded = true
+                }
+        }
+    }
+
     override fun onStart() {
         super.onStart()
 
-        val webview = rootView.findViewById<WebView>(R.id.pdfjs_webview)
+        this.webView = rootView.findViewById<WebView>(R.id.pdfjs_webview)
+        this.webView.settings.javaScriptEnabled = true
 
         //load from storage
         val assetLoader = WebViewAssetLoader.Builder()
@@ -53,25 +78,23 @@ class PdfjsFragment @Inject constructor(
             .addPathHandler("/res/", ResourcesPathHandler(requireContext()))
             .build()
 
-        webview.webViewClient = LocalContentWebViewClient(assetLoader)
-        webview.settings.javaScriptEnabled = true
+        this.webView.webViewClient = LocalContentWebViewClient(assetLoader, this::callbackOnPageLoaded)
+        this.webView.loadUrl("https://appassets.androidplatform.net/assets/web/viewer.html?file=")
 
-        val docFile = DocumentFile.fromTreeUri(requireContext(), Uri.parse(path))
-        val stream = requireContext().contentResolver.openInputStream(Uri.parse(path))
-        val encodedData = Base64.encode(stream!!.readBytes())
-        webview.loadUrl("https://appassets.androidplatform.net/assets/web/viewer.html?file=data:application/pdf;base64,${encodedData}")
-
-        //interact with the javascript
-        webview.evaluateJavascript("pdfjsLib.getDocument('${path}');"
-        ) { result ->
-            Timber.e(result)
-        }
+        this.isPdfLoaded = false
     }
+}
+
+private class PdfjsJSInterface(
+    private val context: Context
+)
+{
 }
 
 private class LocalContentWebViewClient
 (
-    private val assetLoader : WebViewAssetLoader
+    private val assetLoader : WebViewAssetLoader,
+    private val callbackPageLoaded: () -> Unit
 ) : WebViewClientCompat()
 {
     override fun shouldInterceptRequest(
@@ -80,4 +103,9 @@ private class LocalContentWebViewClient
     ): WebResourceResponse? {
         return assetLoader.shouldInterceptRequest(request.url)
     }
+
+    override fun onPageFinished(view: WebView?, url: String?) {
+        callbackPageLoaded()
+    }
+
 }

@@ -38,6 +38,13 @@ class PdfjsViewModel @Inject constructor(
 
     }
 
+    fun toggleSideBar()
+    {
+        updateState {
+            copy(showSideBar = !showSideBar)
+        }
+    }
+
     fun init(
         path: String,
         isTablet : Boolean,

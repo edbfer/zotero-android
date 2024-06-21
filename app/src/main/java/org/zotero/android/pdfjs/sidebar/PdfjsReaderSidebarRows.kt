@@ -9,19 +9,19 @@ import org.zotero.android.pdf.reader.PdfReaderViewModel
 import org.zotero.android.pdf.reader.PdfReaderViewState
 
 @Composable
-internal fun SidebarImageRow(
+internal fun PdfjsSidebarImageRow(
     viewModel: PdfReaderViewModel,
     viewState: PdfReaderViewState,
     annotation: Annotation,
     loadPreview: () -> Bitmap?,
     focusRequester: FocusRequester,
 ) {
-    SidebarImageSection(
+    PdfjsSidebarImageSection(
         loadPreview = loadPreview,
         viewModel = viewModel
     )
-    SidebarDivider()
-    SidebarTagsAndCommentsSection(
+    PdfjsSidebarDivider()
+    PdfjsSidebarTagsAndCommentsSection(
         annotation = annotation,
         viewModel = viewModel,
         viewState = viewState,
@@ -31,24 +31,24 @@ internal fun SidebarImageRow(
 }
 
 @Composable
-internal fun SidebarInkRow(
+internal fun PdfjsSidebarInkRow(
     viewModel: PdfReaderViewModel,
     viewState: PdfReaderViewState,
     annotation: Annotation,
     loadPreview: () -> Bitmap?,
 ) {
-    SidebarImageSection(loadPreview, viewModel)
-    SidebarTagsSection(viewModel = viewModel, viewState = viewState, annotation = annotation)
+    PdfjsSidebarImageSection(loadPreview, viewModel)
+    PdfjsSidebarTagsSection(viewModel = viewModel, viewState = viewState, annotation = annotation)
 }
 
 @Composable
-internal fun SidebarNoteRow(
+internal fun PdfjsSidebarNoteRow(
     annotation: Annotation,
     viewModel: PdfReaderViewModel,
     viewState: PdfReaderViewState,
     focusRequester: FocusRequester,
 ) {
-    SidebarTagsAndCommentsSection(
+    PdfjsSidebarTagsAndCommentsSection(
         annotation = annotation,
         viewModel = viewModel,
         viewState = viewState,
@@ -58,16 +58,16 @@ internal fun SidebarNoteRow(
 }
 
 @Composable
-internal fun SidebarHighlightRow(
+internal fun PdfjsSidebarHighlightRow(
     annotation: Annotation,
     viewModel: PdfReaderViewModel,
     viewState: PdfReaderViewState,
     annotationColor: Color,
     focusRequester: FocusRequester,
 ) {
-    SidebarHighlightedTextSection(annotationColor = annotationColor, annotation = annotation)
+    PdfjsSidebarHighlightedTextSection(annotationColor = annotationColor, annotation = annotation)
 
-    SidebarTagsAndCommentsSection(
+    PdfjsSidebarTagsAndCommentsSection(
         annotation = annotation,
         viewModel = viewModel,
         viewState = viewState,

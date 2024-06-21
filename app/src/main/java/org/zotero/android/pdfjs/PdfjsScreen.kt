@@ -3,6 +3,17 @@ package org.zotero.android.pdfjs
 import android.net.Uri
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.with
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
@@ -10,13 +21,16 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.unit.IntOffset
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import org.zotero.android.architecture.ui.CustomLayoutSize
 import org.zotero.android.architecture.ui.ObserveLifecycleEvent
+import org.zotero.android.pdf.reader.sidebar.PdfjsReaderSidebar
 import org.zotero.android.uicomponents.CustomScaffold
 import org.zotero.android.uicomponents.theme.CustomTheme
 import org.zotero.android.uicomponents.theme.CustomThemeWithStatusAndNavBars
@@ -66,7 +80,7 @@ internal fun PdfjsScreen(
                     {
                         PdfjsTopBar(
                             onBack = onBack,
-                            onShowHideSideBar = { /*TODO*/ },
+                            onShowHideSideBar = viewModel::toggleSideBar,
                             toPdfSettings = { /*TODO*/ },
                             toggleToolbarButton = { /*TODO*/ },
                             isToolbarButtonSelected = viewState.showCreationToolbar,
@@ -80,6 +94,7 @@ internal fun PdfjsScreen(
             if (layoutType.isTablet())
             {
                 PdfjsTabletMode(
+                    showSideBar = viewState.showSideBar,
                     path = params.path,
                     viewState = viewState,
                     viewModel = viewModel,
@@ -92,6 +107,7 @@ internal fun PdfjsScreen(
             {
                 //TODO: Phone layout
                 PdfjsTabletMode(
+                    showSideBar = viewState.showSideBar,
                     path = params.path,
                     viewState = viewState,
                     viewModel = viewModel,
@@ -109,14 +125,56 @@ private fun PdfjsTabletMode(
     path: String,
     viewState: PdfjsViewState,
     viewModel: PdfjsViewModel,
+    showSideBar: Boolean,
     lazyListState: LazyListState,
     layoutType: CustomLayoutSize.LayoutType,
     focusRequester: FocusRequester
 )
 {
-    PdfjsBox(
-        path = path,
-        viewModel = viewModel,
-        viewState = viewState
+    Box(
+        modifier = Modifier.fillMaxSize()
     )
+    {
+        PdfjsBox(
+            path = path,
+            viewModel = viewModel,
+            viewState = viewState
+        )
+        AnimatedContent(
+            targetState = showSideBar,
+            transitionSpec = {createPdfjsSidebarTransitionSpec()},
+            label = "")
+        {showSideBar ->
+            if(showSideBar)
+            {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(CustomTheme.colors.pdfAnnotationsTopbarBackground)
+                )
+                {
+                    PdfjsReaderSidebar(
+                        viewState = viewState,
+                        layoutType = layoutType,
+                        viewModel = viewModel,
+                        focusRequester = focusRequester,
+                        lazyListState = lazyListState
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun AnimatedContentTransitionScope<Boolean>.createPdfjsSidebarTransitionSpec(): ContentTransform
+{
+    val intOffsetSpec = tween<IntOffset>()
+    return (slideInHorizontally(intOffsetSpec) { -it } with
+            slideOutHorizontally(intOffsetSpec) { -it }).using(
+        // Disable clipping since the faded slide-in/out should
+        // be displayed out of bounds.
+        SizeTransform(
+            clip = false,
+            sizeAnimationSpec = { _, _ -> tween() }
+        ))
 }
