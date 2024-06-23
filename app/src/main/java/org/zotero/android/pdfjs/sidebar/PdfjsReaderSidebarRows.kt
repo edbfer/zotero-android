@@ -7,11 +7,13 @@ import androidx.compose.ui.graphics.Color
 import org.zotero.android.pdf.data.Annotation
 import org.zotero.android.pdf.reader.PdfReaderViewModel
 import org.zotero.android.pdf.reader.PdfReaderViewState
+import org.zotero.android.pdfjs.PdfjsViewModel
+import org.zotero.android.pdfjs.PdfjsViewState
 
 @Composable
 internal fun PdfjsSidebarImageRow(
-    viewModel: PdfReaderViewModel,
-    viewState: PdfReaderViewState,
+    viewModel: PdfjsViewModel,
+    viewState: PdfjsViewState,
     annotation: Annotation,
     loadPreview: () -> Bitmap?,
     focusRequester: FocusRequester,
@@ -32,8 +34,8 @@ internal fun PdfjsSidebarImageRow(
 
 @Composable
 internal fun PdfjsSidebarInkRow(
-    viewModel: PdfReaderViewModel,
-    viewState: PdfReaderViewState,
+    viewModel: PdfjsViewModel,
+    viewState: PdfjsViewState,
     annotation: Annotation,
     loadPreview: () -> Bitmap?,
 ) {
@@ -44,8 +46,8 @@ internal fun PdfjsSidebarInkRow(
 @Composable
 internal fun PdfjsSidebarNoteRow(
     annotation: Annotation,
-    viewModel: PdfReaderViewModel,
-    viewState: PdfReaderViewState,
+    viewModel: PdfjsViewModel,
+    viewState: PdfjsViewState,
     focusRequester: FocusRequester,
 ) {
     PdfjsSidebarTagsAndCommentsSection(
@@ -60,8 +62,8 @@ internal fun PdfjsSidebarNoteRow(
 @Composable
 internal fun PdfjsSidebarHighlightRow(
     annotation: Annotation,
-    viewModel: PdfReaderViewModel,
-    viewState: PdfReaderViewState,
+    viewModel: PdfjsViewModel,
+    viewState: PdfjsViewState,
     annotationColor: Color,
     focusRequester: FocusRequester,
 ) {

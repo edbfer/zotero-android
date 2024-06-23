@@ -1684,6 +1684,9 @@ class ItemDetailsViewModel @Inject constructor(
     private fun showPdfjsfromuri(uri: Uri, attachment: Attachment)
     {
         val pdfjsReaderArgs = PdfjsReaderArgs(
+            key = attachment.key,
+            library = viewState.library!!,
+            preselectedAnnotationKey = null,
             path = uri.toString()
         )
         val params = navigationParamsMarshaller.encodeObjectToBase64(pdfjsReaderArgs)

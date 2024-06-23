@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import org.zotero.android.architecture.ui.CustomLayoutSize
 import org.zotero.android.database.objects.AnnotationType
+import org.zotero.android.pdfjs.PdfjsBottomPanel
 import org.zotero.android.pdfjs.PdfjsViewModel
 import org.zotero.android.pdfjs.PdfjsViewState
 import org.zotero.android.pdfjs.sidebar.PdfjsSidebarSearchBar
@@ -136,7 +137,7 @@ internal fun PdfjsReaderSidebar(
                 }
             }
         }
-        PdfjsReaderBottomPanel(
+        PdfjsBottomPanel(
             layoutType = layoutType,
             viewModel = viewModel,
             viewState = viewState

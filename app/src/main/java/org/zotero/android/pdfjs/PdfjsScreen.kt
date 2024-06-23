@@ -13,7 +13,9 @@ import androidx.compose.animation.with
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
@@ -149,7 +151,8 @@ private fun PdfjsTabletMode(
             {
                 Column(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxHeight()
+                        .fillMaxWidth(0.3f)
                         .background(CustomTheme.colors.pdfAnnotationsTopbarBackground)
                 )
                 {
