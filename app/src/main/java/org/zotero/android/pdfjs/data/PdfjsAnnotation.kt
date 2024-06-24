@@ -12,7 +12,7 @@ import org.zotero.android.pdf.reader.AnnotationKey
 import org.zotero.android.sync.AnnotationBoundingBoxCalculator
 import org.zotero.android.sync.Library
 
-interface PdfjsAnnotation
+/*interface PdfjsAnnotation
 {
     val key: String
     val readerKey: AnnotationKey
@@ -73,4 +73,4 @@ interface PdfjsAnnotation
         }
         return this.color
     }
-}
+}*/

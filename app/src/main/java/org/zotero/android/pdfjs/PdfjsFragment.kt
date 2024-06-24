@@ -1,6 +1,7 @@
 package org.zotero.android.pdfjs
 
 import android.content.Context
+import android.graphics.RectF
 import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -20,7 +21,10 @@ import androidx.webkit.WebViewAssetLoader.AssetsPathHandler
 import androidx.webkit.WebViewAssetLoader.ResourcesPathHandler
 import androidx.webkit.WebViewClientCompat
 import org.zotero.android.R
+//import org.zotero.android.pdfjs.data.PdfjsAnnotation
+//import org.zotero.android.pdfjs.data.PdfjsDocumentAnnotation
 import org.zotero.android.screens.root.RootViewModel
+import org.zotero.android.uicomponents.reorder.add
 import timber.log.Timber
 import java.io.File
 import java.io.InputStream
@@ -30,7 +34,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 
 class PdfjsFragment @Inject constructor(
     private val path : String,
-    private val onDocumentLoadedCallback: () -> Unit
+    private val onDocumentLoadedCallback: (PdfjsDocument) -> Unit
 ) : Fragment(R.layout.pdfjs_fragment)
 {
     var pageIndex: Int = 0
@@ -38,7 +42,10 @@ class PdfjsFragment @Inject constructor(
     private lateinit var webView: WebView
     private var isPdfLoaded: Boolean = true
 
-    val selectedAnnotations: List<PdfjsAnnotation> = emptyList()
+    private var pageNumber: Int = 0
+    private var pageSizeMap: ArrayList<RectF> = ArrayList()
+
+    //val selectedAnnotations: List<PdfjsAnnotation> = emptyList()
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -62,24 +69,39 @@ class PdfjsFragment @Inject constructor(
             //HIDE TOOLBAR
             this.webView.evaluateJavascript("document.getElementById('toolbarContainer').hidden = true;", null)
             this.webView.evaluateJavascript(
-                "d = atob('${encodedData}'); prom = PDFViewerApplication.open({data: d}); prom.then(ZoteroJsInterface.onDocumentLoaded())")
-                {result ->
-                    if(result != null)
-                        this.isPdfLoaded = true
-                }
+                  "PDFViewerApplication.eventBus.on('pagerendered', function a(evt) {ZoteroJsInterface.onDocumentLoaded()});" +
+                        "d = atob('${encodedData}');" +
+                        " prom = PDFViewerApplication.open({data: d});" +
+                        " prom.then()")
+                {}
+
+            //get info from the document
+            //this.webView.evaluateJavascript("prom = PDFViewerApplication.pdfViewer.getPagesOverview(); prom.then(function(a) {ZoteroJsInterface.getPagesOverview(a)}", null)
         }
     }
 
-    fun onDocumentLoaded()
+    private fun getNumPages() : Int
     {
-        onDocumentLoadedCallback()
+        if(this.isPdfLoaded)
+        {
+            var returnval: Int = 0
+            this.webView.post {
+                this.webView.evaluateJavascript("ZoteroJsInterface.setPageNumber(PDFViewerApplication.pdfDocument.numPages)") {}
+            }
+            return returnval
+        }
+        return 0
     }
 
     override fun onStart() {
         super.onStart()
 
         this.webView = rootView.findViewById<WebView>(R.id.pdfjs_webview)
-        this.webView.settings.javaScriptEnabled = true
+        this.webView.post {
+            this.webView.settings.javaScriptEnabled = true
+            this.webView.settings.domStorageEnabled = true
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
 
         //load from storage
         val assetLoader = WebViewAssetLoader.Builder()
@@ -88,17 +110,52 @@ class PdfjsFragment @Inject constructor(
             .build()
 
         //install javascript interface
-        this.webView.addJavascriptInterface(PdfjsJSInterface(documentLoadedCallback = this::onDocumentLoaded), "ZoteroJsInterface")
+        this.webView.addJavascriptInterface(this, "ZoteroJsInterface")
 
         this.webView.webViewClient = LocalContentWebViewClient(assetLoader, this::callbackOnPageLoaded)
-        this.webView.loadUrl("https://appassets.androidplatform.net/assets/web/viewer.html?file=")
+        this.webView.post {
+            this.webView.loadUrl("https://appassets.androidplatform.net/assets/web/viewer.html?file=")
+        }
 
         this.isPdfLoaded = false
     }
 
-    fun setSelectedAnnotation(pdfAnnotation: PdfjsAnnotation) {
-        //TODO: Unimplemented
+    @JavascriptInterface
+    fun onDocumentLoaded()
+    {
+        this.isPdfLoaded = true
+
+        val numPages = getNumPages()
+
+        val document = PdfjsDocument(
+            pageSizeArray = this.pageSizeMap.toList(),
+            numPages = numPages
+        )
+
+        onDocumentLoadedCallback(document)
     }
+
+    @JavascriptInterface
+    fun getPagesOverview(pageList: List<PageOverviewItem>?)
+    {
+        if(pageList == null)
+            this.pageSizeMap = ArrayList()
+
+        for (item in pageList!!)
+        {
+            this.pageSizeMap.add(RectF(0F, 0F, item.width.toFloat(), item.height.toFloat()))
+        }
+    }
+
+    @JavascriptInterface
+    fun setPageNumber(pageNumber: String)
+    {
+        this.pageNumber = pageNumber.toInt()
+    }
+
+    /*fun setSelectedAnnotation(pdfAnnotation: PdfjsAnnotation) {
+        //TODO: Unimplemented
+    }*/
 
     fun getZoomScale(pageIndex: Int): Float {
         //TODO: Unimplemented
@@ -115,17 +172,6 @@ class PdfjsFragment @Inject constructor(
 
     fun setPageIndex(pageIndex: Int, animated: Boolean) {
         TODO("Not yet implemented")
-    }
-}
-
-private class PdfjsJSInterface (
-    private val documentLoadedCallback: () -> Unit
-)
-{
-    @JavascriptInterface
-    fun onDocumentLoaded()
-    {
-        documentLoadedCallback()
     }
 }
 

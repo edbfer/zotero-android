@@ -16,7 +16,7 @@ import java.util.Collections
 import javax.inject.Inject
 import javax.inject.Singleton
 
-@Singleton
+/*@Singleton
 class PdfjsAnnotationPreviewManager @Inject constructor(
     dispatchers: Dispatchers,
     private val fileStore: FileStore,
@@ -201,5 +201,5 @@ class PdfjsAnnotationPreviewManager @Inject constructor(
         val resultVideoViewHeight = (height / resultScale).toInt()
         return rawDocumentBitmap.scale(resultVideoViewWidth, resultVideoViewHeight, true)
     }
-}
+}*/
 

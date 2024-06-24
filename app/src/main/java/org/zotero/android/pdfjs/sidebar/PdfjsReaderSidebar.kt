@@ -79,7 +79,7 @@ internal fun PdfjsReaderSidebar(
                             .safeClickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
-                                onClick = { viewModel.selectAnnotation(key) },
+                                onClick = { /*viewModel.selectAnnotation(key)*/ },
                             )
                     ) {
                         val annotationColor =

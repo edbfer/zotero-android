@@ -130,7 +130,7 @@ private fun PdfjsSidebarCommentSection(
                 .padding(top = if (shouldAddTopPadding) 8.dp else 0.dp)
                 .onFocusChanged {
                     if (it.hasFocus) {
-                        viewModel.onCommentFocusFieldChange(annotation.key)
+                        //viewModel.onCommentFocusFieldChange(annotation.key)
                     }
                 },
             value = if (annotation.key == viewState.commentFocusKey) {
@@ -174,7 +174,7 @@ internal fun PdfjsSidebarTagsSection(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = rememberRipple(bounded = true),
-                onClick = { viewModel.onTagsClicked(annotation) }
+                onClick = { /*viewModel.onTagsClicked(annotation)*/ }
             )
             .sectionVerticalPadding()
             .fillMaxWidth()

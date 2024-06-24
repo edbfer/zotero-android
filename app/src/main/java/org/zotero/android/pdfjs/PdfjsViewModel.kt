@@ -46,8 +46,9 @@ import org.zotero.android.pdf.data.DocumentAnnotation
 import org.zotero.android.pdf.reader.AnnotationKey
 import org.zotero.android.pdf.reader.PdfReaderViewEffect
 import org.zotero.android.pdffilter.data.PdfFilterArgs
-import org.zotero.android.pdfjs.data.PdfjsAnnotation
-import org.zotero.android.pdfjs.data.PdfjsAnnotationBoundingBoxConverter
+//import org.zotero.android.pdfjs.data.PdfjsAnnotation
+//import org.zotero.android.pdfjs.data.PdfjsAnnotationBoundingBoxConverter
+//import org.zotero.android.pdfjs.data.PdfjsDocumentAnnotation
 import org.zotero.android.screens.libraries.LibrariesViewModel
 import org.zotero.android.screens.tagpicker.data.TagPickerArgs
 import org.zotero.android.screens.tagpicker.data.TagPickerResult
@@ -84,7 +85,7 @@ class PdfjsViewModel @Inject constructor(
     private lateinit var rawDocument: PdfjsDocument
     private lateinit var fragment : PdfjsFragment
     private lateinit var fragmentManager: FragmentManager
-    private lateinit var annotationBoundingBoxConverter: PdfjsAnnotationBoundingBoxConverter
+    //private lateinit var annotationBoundingBoxConverter: PdfjsAnnotationBoundingBoxConverter
 
     private var requested_uri: String = ""
     var annotationMaxSideSize = 0
@@ -100,11 +101,11 @@ class PdfjsViewModel @Inject constructor(
         navigationParamsMarshaller.decodeObjectFromBase64(argsEncoded)
     }
 
-    fun selectAnnotation(key: AnnotationKey)
+    /*fun selectAnnotation(key: AnnotationKey)
     {
         if(!viewState.sidebarEditingEnabled && key != viewState.selectedAnnotationKey)
             _select(key = key, didSelectInDocument = false)
-    }
+    }*/
 
     fun annotation(key: AnnotationKey) : org.zotero.android.pdf.data.Annotation?
     {
@@ -127,15 +128,15 @@ class PdfjsViewModel @Inject constructor(
 
     }
 
-    fun selectAnnotationFromDocument(key: AnnotationKey)
+    /*fun selectAnnotationFromDocument(key: AnnotationKey)
     {
         if(!viewState.sidebarEditingEnabled && key != viewState.selectedAnnotationKey)
         {
             _select(key = key, didSelectInDocument = true)
         }
-    }
+    }*/
 
-    fun onCommentFocusFieldChange(annotationKey: String)
+    /*fun onCommentFocusFieldChange(annotationKey: String)
     {
         val key = AnnotationKey(key = annotationKey, type = AnnotationKey.Kind.database)
         val annotation = annotation(key)?: return
@@ -144,7 +145,7 @@ class PdfjsViewModel @Inject constructor(
         updateState {
             copy(commentFocusKey = annotationKey, commentFocusText = annotation.comment)
         }
-    }
+    }*/
 
     fun onMoreOptionsForItemClicked()
     {
@@ -266,7 +267,7 @@ class PdfjsViewModel @Inject constructor(
         onCommentChangeFlow.tryEmit(annotationKey to comment)
     }
 
-    fun onTagsClicked(annotation: org.zotero.android.pdf.data.Annotation)
+    /*fun onTagsClicked(annotation: org.zotero.android.pdf.data.Annotation)
     {
         val annotationKey = AnnotationKey(key = annotation.key, type = AnnotationKey.Kind.database)
         selectAnnotationFromDocument(annotationKey)
@@ -281,7 +282,7 @@ class PdfjsViewModel @Inject constructor(
         )
 
         triggerEffect(PdfjsViewEffect.NavigateToTagPickerScreen)
-    }
+    }*/
 
     fun onSearch(text: String)
     {
@@ -294,10 +295,10 @@ class PdfjsViewModel @Inject constructor(
     fun onDocumentLoaded(document: PdfjsDocument)
     {
         this.document = document
-        annotationBoundingBoxConverter = PdfjsAnnotationBoundingBoxConverter(document)
-        loadRawDocument()
+        //annotationBoundingBoxConverter = PdfjsAnnotationBoundingBoxConverter(document)
+        /*loadRawDocument()
         loadDocumentData()
-        setupInteractionListeners()
+        setupInteractionListeners()*/
     }
 
     private fun loadRawDocument()
@@ -307,7 +308,7 @@ class PdfjsViewModel @Inject constructor(
 
     private fun loadDocumentData()
     {
-        val key = viewState.key
+        /*val key = viewState.key
         val library = viewState.library
         val dbResult = loadAnnotationsAndPage(key = key, library = library)
 
@@ -396,7 +397,7 @@ class PdfjsViewModel @Inject constructor(
             else -> {}
         }
         observeDocument()
-        updateAnnotationsList(forceNotShowAnnotationPopup = true)
+        updateAnnotationsList(forceNotShowAnnotationPopup = true)*/
     }
 
     private fun setupInteractionListeners()
@@ -404,14 +405,14 @@ class PdfjsViewModel @Inject constructor(
         //TODO: Annotation Interface
     }
 
-    @OptIn(ExperimentalStdlibApi::class)
+    /*@OptIn(ExperimentalStdlibApi::class)
     private fun loadAnnotations(
         document: PdfjsDocument,
         username: String,
         displayName: String
     ) : Map<String, DocumentAnnotation>
     {
-        val annotations = mutableMapOf<String, DocumentAnnotation>()
+        /*val annotations = mutableMapOf<String, PdfjsDocumentAnnotation>()
         val pdfAnnotations = document.annotationProvider.getAllAnnotations()
 
         for (pdfAnnotation in pdfAnnotations)
@@ -419,8 +420,8 @@ class PdfjsViewModel @Inject constructor(
             //TODO: WAS ANIMATION CONVERTER HERE
             annotations[pdfAnnotation.key] = pdfAnnotation
         }
-        return annotations
-    }
+        return annotations*/
+    }*/
 
     private fun createSortedKeys(
         databaseAnnotations: RealmResults<RItem>,
@@ -489,7 +490,7 @@ class PdfjsViewModel @Inject constructor(
         return true
     }
 
-    private fun update(
+    /*private fun update(
         document: PdfjsDocument,
         zoteroAnnotations: List<PdfjsAnnotation>,
         key: String,
@@ -514,7 +515,7 @@ class PdfjsViewModel @Inject constructor(
         zoteroAnnotations.forEach {
             document.annotationProvider.addAnnotationToPage(it)
         }
-    }
+    }*/
 
     private fun loadAnnotationsAndPage(
         key: String,
@@ -557,7 +558,7 @@ class PdfjsViewModel @Inject constructor(
         this.fragment = PdfjsFragment(path = requested_uri, onDocumentLoadedCallback = this::onDocumentLoaded)
     }
 
-    private fun selectAndFocusAnnotationInDocument()
+    /*private fun selectAndFocusAnnotationInDocument()
     {
         val annotation = this.selectedAnnotation
         if(annotation != null)
@@ -578,7 +579,7 @@ class PdfjsViewModel @Inject constructor(
         {
             select(annotation = null, pageIndex = fragment.pageIndex, document = this.document)
         }
-    }
+    }*/
 
     private fun scrollIfNeeded(pageIndex: Int, animated: Boolean, completion: () -> Unit)
     {
@@ -592,7 +593,7 @@ class PdfjsViewModel @Inject constructor(
         completion()
     }
 
-    private fun observe(results: RealmResults<RItem>)
+    /*private fun observe(results: RealmResults<RItem>)
     {
         results.addChangeListener { objects, changeSet ->
             when(changeSet.state)
@@ -619,9 +620,9 @@ class PdfjsViewModel @Inject constructor(
                 else -> {}
             }
         }
-    }
+    }*/
 
-    private fun focus(
+    /*private fun focus(
         annotation: org.zotero.android.pdf.data.Annotation,
         location: Pair<Int, RectF>,
         document: PdfjsDocument
@@ -632,7 +633,7 @@ class PdfjsViewModel @Inject constructor(
         {
             select(annotation = annotation, pageIndex = pageIndex, document = document)
         }
-    }
+    }*/
 
     private fun updateAnnotationsList(forceNotShowAnnotationPopup: Boolean = false)
     {
@@ -654,7 +655,7 @@ class PdfjsViewModel @Inject constructor(
         )
     }
 
-    private fun select(
+    /*private fun select(
         annotation: org.zotero.android.pdf.data.Annotation?,
         pageIndex: Int,
         document: PdfjsDocument
@@ -688,9 +689,9 @@ class PdfjsViewModel @Inject constructor(
             if(!fragment.selectedAnnotations.isEmpty())
                 fragment.clearSelectedAnnotations()
         }
-    }
+    }*/
 
-    private fun _select(key: AnnotationKey?, didSelectInDocument: Boolean)
+    /*private fun _select(key: AnnotationKey?, didSelectInDocument: Boolean)
     {
         if(key == viewState.selectedAnnotationKey)
             return
@@ -758,7 +759,7 @@ class PdfjsViewModel @Inject constructor(
         }
         selectAndFocusAnnotationInDocument()
         updateAnnotationsList()
-    }
+    }*/
 
     private fun initState()
     {

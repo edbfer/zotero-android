@@ -8,14 +8,20 @@ import org.zotero.android.database.objects.RCustomLibraryType
 import org.zotero.android.database.objects.RItem
 import org.zotero.android.database.requests.key
 import org.zotero.android.ktx.rounded
+import org.zotero.android.pdf.data.AnnotationEditability
 import org.zotero.android.pdf.reader.AnnotationKey
 import org.zotero.android.sync.Library
 import org.zotero.android.sync.LibraryIdentifier
 import org.zotero.android.sync.Tag
 import timber.log.Timber
 
-data class PdfjsDatabaseAnnotation(
-    val item: RItem
+/*data class PdfjsDatabaseAnnotation(
+    val item: RItem,
+    override val pageIndex: Int,
+    override val shouldRenderPreview: Boolean,
+    override val isZoteroAnnotation: Boolean,
+    override val previewId: String,
+    override var boundingBox: RectF
 ): PdfjsAnnotation {
 
     override val readerKey: AnnotationKey
@@ -201,4 +207,4 @@ data class PdfjsDatabaseAnnotation(
         }
     }
 
-}
+}*/

@@ -6,7 +6,7 @@ import com.pspdfkit.document.PdfDocument
 import org.zotero.android.ktx.distance
 import org.zotero.android.pdfjs.PdfjsDocument
 
-class PdfjsAnnotationBoundingBoxConverter constructor(
+/*class PdfjsAnnotationBoundingBoxConverter constructor(
     val document: PdfjsDocument,
 ) {
 
@@ -71,4 +71,4 @@ class PdfjsAnnotationBoundingBoxConverter constructor(
         }
         return textOffset
     }
-}
+}*/

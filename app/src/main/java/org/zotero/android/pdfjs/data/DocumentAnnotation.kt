@@ -10,7 +10,7 @@ import org.zotero.android.sync.LibraryIdentifier
 import org.zotero.android.sync.Tag
 import java.util.Date
 
-data class PdfjsDocumentAnnotation(
+/*data class PdfjsDocumentAnnotation(
     override val key: String,
     override val type: AnnotationType,
     override val page: Int,
@@ -25,6 +25,11 @@ data class PdfjsDocumentAnnotation(
     override val text: String?,
     override val sortIndex: String,
     val dateModified: Date,
+    override val pageIndex: Int,
+    override val shouldRenderPreview: Boolean,
+    override val isZoteroAnnotation: Boolean,
+    override val previewId: String,
+    override var boundingBox: RectF,
 ): PdfjsAnnotation {
     override fun isAuthor(currentUserId: Long): Boolean {
         return this.isAuthor
@@ -60,4 +65,4 @@ data class PdfjsDocumentAnnotation(
             }
         }
     }
-}
+}*/
