@@ -1,8 +1,10 @@
 package org.zotero.android.pdfjs
 
-interface PageOverviewItem
-{
-    val height: Int
-    val width: Int
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class PageOverviewItem(
+    val height: Int,
+    val width: Int,
     val rotation: Int
-}
+)

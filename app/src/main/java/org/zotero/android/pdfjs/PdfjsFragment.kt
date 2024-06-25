@@ -20,6 +20,10 @@ import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewAssetLoader.AssetsPathHandler
 import androidx.webkit.WebViewAssetLoader.ResourcesPathHandler
 import androidx.webkit.WebViewClientCompat
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.serialization.json.Json
+import okhttp3.internal.wait
 import org.zotero.android.R
 //import org.zotero.android.pdfjs.data.PdfjsAnnotation
 //import org.zotero.android.pdfjs.data.PdfjsDocumentAnnotation
@@ -44,6 +48,9 @@ class PdfjsFragment @Inject constructor(
 
     private var pageNumber: Int = 0
     private var pageSizeMap: ArrayList<RectF> = ArrayList()
+    private var pageLabelsMap: ArrayList<String> = ArrayList()
+
+    private var waitSemaphore: Mutex = Mutex()
 
     //val selectedAnnotations: List<PdfjsAnnotation> = emptyList()
 
@@ -80,15 +87,14 @@ class PdfjsFragment @Inject constructor(
         }
     }
 
-    private fun getNumPages() : Int
+    private fun askNumPages() : Int
     {
         if(this.isPdfLoaded)
         {
-            var returnval: Int = 0
             this.webView.post {
                 this.webView.evaluateJavascript("ZoteroJsInterface.setPageNumber(PDFViewerApplication.pdfDocument.numPages)") {}
             }
-            return returnval
+            return this.pageNumber
         }
         return 0
     }
@@ -124,24 +130,20 @@ class PdfjsFragment @Inject constructor(
     fun onDocumentLoaded()
     {
         this.isPdfLoaded = true
+        //num pages
+        this.webView.post {
+            this.webView.evaluateJavascript("ZoteroJsInterface.setPageNumber(PDFViewerApplication.pdfDocument.numPages)") {} //NumberPages
+            this.webView.evaluateJavascript("ZoteroJsInterface.setPageSizeMap(JSON.stringify(PDFViewerApplication.pdfViewer.getPagesOverview()))") {} //PageSizes
+            this.webView.evaluateJavascript("PDFViewerApplication.pdfDocument.getPageLabels().then(function (a) {ZoteroJsInterface.setPageLabels(JSON.stringify(a))})") {} //PageLabels
+        }
 
-        val numPages = getNumPages()
-
-        val document = PdfjsDocument(
-            pageSizeArray = this.pageSizeMap.toList(),
-            numPages = numPages
-        )
-
-        onDocumentLoadedCallback(document)
     }
 
     @JavascriptInterface
-    fun getPagesOverview(pageList: List<PageOverviewItem>?)
+    fun setPageSizeMap(jsonArray: String)
     {
-        if(pageList == null)
-            this.pageSizeMap = ArrayList()
-
-        for (item in pageList!!)
+        val pageList = Json.decodeFromString<Array<PageOverviewItem>>(jsonArray)
+        for (item in pageList)
         {
             this.pageSizeMap.add(RectF(0F, 0F, item.width.toFloat(), item.height.toFloat()))
         }
@@ -151,6 +153,12 @@ class PdfjsFragment @Inject constructor(
     fun setPageNumber(pageNumber: String)
     {
         this.pageNumber = pageNumber.toInt()
+    }
+
+    @JavascriptInterface
+    fun setPageLabels(jsonArray: String)
+    {
+        this.pageLabelsMap = Json.decodeFromString(jsonArray)
     }
 
     /*fun setSelectedAnnotation(pdfAnnotation: PdfjsAnnotation) {
