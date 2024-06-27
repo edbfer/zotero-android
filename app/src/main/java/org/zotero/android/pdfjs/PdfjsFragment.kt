@@ -20,11 +20,17 @@ import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewAssetLoader.AssetsPathHandler
 import androidx.webkit.WebViewAssetLoader.ResourcesPathHandler
 import androidx.webkit.WebViewClientCompat
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkRequest
+import androidx.work.Worker
+import androidx.work.WorkerParameters
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.internal.wait
 import org.zotero.android.R
+import org.zotero.android.pdfjs.data.PdfjsAnnotation
 //import org.zotero.android.pdfjs.data.PdfjsAnnotation
 //import org.zotero.android.pdfjs.data.PdfjsDocumentAnnotation
 import org.zotero.android.screens.root.RootViewModel
@@ -38,7 +44,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 
 class PdfjsFragment @Inject constructor(
     private val path : String,
-    private val onDocumentLoadedCallback: (PdfjsDocument) -> Unit
+    private val onDocumentLoadedCallback: () -> Unit
 ) : Fragment(R.layout.pdfjs_fragment)
 {
     var pageIndex: Int = 0
@@ -49,8 +55,10 @@ class PdfjsFragment @Inject constructor(
     private var pageNumber: Int = 0
     private var pageSizeMap: ArrayList<RectF> = ArrayList()
     private var pageLabelsMap: ArrayList<String> = ArrayList()
+    private var pageAnnotations: Map<Int, List<PdfjsAnnotation>> = emptyMap()
 
-    private var waitSemaphore: Mutex = Mutex()
+    private var waitSemaphore: Semaphore = Semaphore(permits = 1)
+    private lateinit var docCreatorWorker: DocumentCreatorWorker
 
     //val selectedAnnotations: List<PdfjsAnnotation> = emptyList()
 
@@ -130,17 +138,11 @@ class PdfjsFragment @Inject constructor(
     fun onDocumentLoaded()
     {
         this.isPdfLoaded = true
-        //num pages
-        this.webView.post {
-            this.webView.evaluateJavascript("ZoteroJsInterface.setPageNumber(PDFViewerApplication.pdfDocument.numPages)") {} //NumberPages
-            this.webView.evaluateJavascript("ZoteroJsInterface.setPageSizeMap(JSON.stringify(PDFViewerApplication.pdfViewer.getPagesOverview()))") {} //PageSizes
-            this.webView.evaluateJavascript("PDFViewerApplication.pdfDocument.getPageLabels().then(function (a) {ZoteroJsInterface.setPageLabels(JSON.stringify(a))})") {} //PageLabels
-        }
-
+        onDocumentLoadedCallback()
     }
 
     @JavascriptInterface
-    fun setPageSizeMap(jsonArray: String)
+    fun jsSetPageSizeMap(jsonArray: String)
     {
         val pageList = Json.decodeFromString<Array<PageOverviewItem>>(jsonArray)
         for (item in pageList)
@@ -150,15 +152,57 @@ class PdfjsFragment @Inject constructor(
     }
 
     @JavascriptInterface
-    fun setPageNumber(pageNumber: String)
+    fun jsSetPageNumber(pageNumber: String)
     {
         this.pageNumber = pageNumber.toInt()
+        this.waitSemaphore.release()
     }
 
     @JavascriptInterface
-    fun setPageLabels(jsonArray: String)
+    fun jsSetPageLabels(jsonArray: String)
     {
         this.pageLabelsMap = Json.decodeFromString(jsonArray)
+        this.waitSemaphore.release()
+    }
+
+    //suspend part
+    suspend fun getPageNumber() : Int
+    {
+        this.webView.post {
+            this.webView.evaluateJavascript("ZoteroJsInterface.jsSetPageNumber(PDFViewerApplication.pdfDocument.numPages)") {}
+        }
+        this.waitSemaphore.acquire()
+        return this.pageNumber
+    }
+
+    suspend fun getPageSizeMap() : List<RectF>
+    {
+        this.webView.post {
+            this.webView.evaluateJavascript("ZoteroJsInterface.jsSetPageSizeMap(JSON.stringify(PDFViewerApplication.pdfViewer.getPagesOverview()))") {}
+        }
+        this.waitSemaphore.acquire()
+        return this.pageSizeMap.toList()
+    }
+
+    suspend fun getPageLabelsMap() : List<String>
+    {
+        this.webView.post {
+            this.webView.evaluateJavascript("PDFViewerApplication.pdfDocument.getPageLabels().then(function (a) {ZoteroJsInterface.jsSetPageLabels(JSON.stringify(a))})") {}
+        }
+        this.waitSemaphore.acquire()
+        return this.pageLabelsMap.toList()
+    }
+
+    suspend fun getPageAnnotations(pageNumber: Int) : List<PdfjsAnnotation>
+    {
+        this.webView.post {
+            this.webView.evaluateJavascript(
+                    "PDFViewerApplication.pdfViewer._pages[${pageNumber}].pdfPage.getAnnotations.then(" +
+                    "function (a) {ZoteroJsInterface.jsSetPageAnnotations(JSON.stringify(a))});"
+            ){}
+        }
+        this.waitSemaphore.acquire()
+        return this.pageAnnotations[pageNumber]!!
     }
 
     /*fun setSelectedAnnotation(pdfAnnotation: PdfjsAnnotation) {
@@ -180,6 +224,18 @@ class PdfjsFragment @Inject constructor(
 
     fun setPageIndex(pageIndex: Int, animated: Boolean) {
         TODO("Not yet implemented")
+    }
+}
+
+class DocumentCreatorWorker @Inject constructor(
+    context: Context,
+    params: WorkerParameters,
+    private val workerFunction: () -> Unit
+) : Worker(context, params)
+{
+    override fun doWork(): Result {
+        workerFunction()
+        return Result.success()
     }
 }
 

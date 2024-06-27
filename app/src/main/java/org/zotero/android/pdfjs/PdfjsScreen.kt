@@ -1,6 +1,5 @@
 package org.zotero.android.pdfjs
 
-import android.net.Uri
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope

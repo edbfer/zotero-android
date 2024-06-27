@@ -12,7 +12,7 @@ import org.zotero.android.pdf.reader.AnnotationKey
 import org.zotero.android.sync.AnnotationBoundingBoxCalculator
 import org.zotero.android.sync.Library
 
-/*interface PdfjsAnnotation
+interface PdfjsAnnotation
 {
     val key: String
     val readerKey: AnnotationKey
@@ -32,10 +32,10 @@ import org.zotero.android.sync.Library
     var boundingBox: RectF
 
     fun editability(currentUserId: Long, library: Library) : AnnotationEditability
-    fun paths(boundingBoxConverter: PdfjsAnnotationBoundingBoxConverter) : List<List<PointF>>
-    fun rects(boundingBoxConverter: PdfjsAnnotationBoundingBoxConverter) : List<RectF>
+    //fun paths(boundingBoxConverter: PdfjsAnnotationBoundingBoxConverter) : List<List<PointF>>
+    //fun rects(boundingBoxConverter: PdfjsAnnotationBoundingBoxConverter) : List<RectF>
     fun isAuthor(currentUserId: Long) : Boolean
-    fun boundingBox(boundingBoxConverter: PdfjsAnnotationBoundingBoxConverter) : RectF
+    /*fun boundingBox(boundingBoxConverter: PdfjsAnnotationBoundingBoxConverter) : RectF
     {
         when(this.type)
         {
@@ -61,7 +61,7 @@ import org.zotero.android.sync.Library
                 return this.boundingBox
             }
         }
-    }
+    }*/
 
     fun author(displayName: String, username: String) : String
 
@@ -73,4 +73,4 @@ import org.zotero.android.sync.Library
         }
         return this.color
     }
-}*/
+}

@@ -7,12 +7,15 @@ import androidx.fragment.app.FragmentManager
 import androidx.fragment.app.clearFragmentResult
 import androidx.fragment.app.commit
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewModelScope
 import com.pspdfkit.annotations.SquareAnnotation
 import com.pspdfkit.ui.special_mode.manager.AnnotationManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.realm.OrderedCollectionChangeSet
 import io.realm.RealmResults
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import okhttp3.internal.userAgent
 import org.greenrobot.eventbus.EventBus
 import org.jetbrains.kotlin.tooling.core.compareTo
@@ -46,6 +49,8 @@ import org.zotero.android.pdf.data.DocumentAnnotation
 import org.zotero.android.pdf.reader.AnnotationKey
 import org.zotero.android.pdf.reader.PdfReaderViewEffect
 import org.zotero.android.pdffilter.data.PdfFilterArgs
+import org.zotero.android.pdfjs.data.PdfjsAnnotation
+import org.zotero.android.pdfjs.data.PdfjsDocumentAnnotation
 //import org.zotero.android.pdfjs.data.PdfjsAnnotation
 //import org.zotero.android.pdfjs.data.PdfjsAnnotationBoundingBoxConverter
 //import org.zotero.android.pdfjs.data.PdfjsDocumentAnnotation
@@ -292,13 +297,22 @@ class PdfjsViewModel @Inject constructor(
         onSearchStateFlow.tryEmit(text)
     }
 
-    fun onDocumentLoaded(document: PdfjsDocument)
+    fun onDocumentLoaded()
     {
-        this.document = document
+        viewModelScope.launch {
+            //need to call the elements to build the PDFDocument
+            val document = PdfjsDocument.build(fragment = fragment)
+            onDocumentCreated(document, document)
+        }
         //annotationBoundingBoxConverter = PdfjsAnnotationBoundingBoxConverter(document)
         /*loadRawDocument()
         loadDocumentData()
         setupInteractionListeners()*/
+    }
+
+    private fun onDocumentCreated(document: PdfjsDocument, rawDocument: PdfjsDocument)
+    {
+
     }
 
     private fun loadRawDocument()
@@ -405,23 +419,23 @@ class PdfjsViewModel @Inject constructor(
         //TODO: Annotation Interface
     }
 
-    /*@OptIn(ExperimentalStdlibApi::class)
+    @OptIn(ExperimentalStdlibApi::class)
     private fun loadAnnotations(
         document: PdfjsDocument,
         username: String,
         displayName: String
-    ) : Map<String, DocumentAnnotation>
+    ) : Map<String, PdfjsAnnotation>
     {
-        /*val annotations = mutableMapOf<String, PdfjsDocumentAnnotation>()
-        val pdfAnnotations = document.annotationProvider.getAllAnnotations()
+        val annotations = mutableMapOf<String, PdfjsDocumentAnnotation>()
+        val pdfAnnotations = document.getAllAnnotations()
 
         for (pdfAnnotation in pdfAnnotations)
         {
             //TODO: WAS ANIMATION CONVERTER HERE
             annotations[pdfAnnotation.key] = pdfAnnotation
         }
-        return annotations*/
-    }*/
+        return annotations
+    }
 
     private fun createSortedKeys(
         databaseAnnotations: RealmResults<RItem>,

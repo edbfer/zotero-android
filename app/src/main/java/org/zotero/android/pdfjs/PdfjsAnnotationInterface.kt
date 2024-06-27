@@ -7,11 +7,13 @@ import android.provider.ContactsContract.Data
 import androidx.annotation.ColorInt
 import org.zotero.android.pdf.data.DatabaseAnnotation
 import org.zotero.android.pdf.data.DocumentAnnotation
+import org.zotero.android.pdfjs.data.PdfjsAnnotation
 //import org.zotero.android.pdfjs.data.PdfjsAnnotation
 import javax.inject.Inject
 
 class PdfjsDocument @Inject constructor(
     private val pageSizeArray: List<RectF>,
+    private val pageLabelsArray: List<String>,
     private val numPages: Int,
 )
 {
@@ -21,7 +23,17 @@ class PdfjsDocument @Inject constructor(
         {
             return PdfjsDocument(
                 pageSizeArray = emptyList(),
+                pageLabelsArray = emptyList(),
                 numPages = 0
+            )
+        }
+
+        suspend fun build(fragment: PdfjsFragment) : PdfjsDocument
+        {
+            return PdfjsDocument(
+                numPages = fragment.getPageNumber(),
+                pageSizeArray = fragment.getPageSizeMap(),
+                pageLabelsArray = fragment.getPageLabelsMap()
             )
         }
     }
@@ -38,7 +50,9 @@ class PdfjsDocument @Inject constructor(
     }
 }
 
-/*class PdfjsAnnotationProvider()
+class PdfjsAnnotationProvider(
+    private var fragmentGetAllAnnotations: () -> Unit,
+)
 {
     fun getAllAnnotations() : MutableList<PdfjsAnnotation>
     {
@@ -49,4 +63,4 @@ class PdfjsDocument @Inject constructor(
     {
 
     }
-}*/
+}
