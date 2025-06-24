@@ -1,7 +1,6 @@
 package org.zotero.android.screens.libraries
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -14,7 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.Divider
-import androidx.compose.material.ripple.rememberRipple
+import androidx.compose.material.ripple
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,6 +28,7 @@ import org.zotero.android.screens.libraries.data.LibraryRowData
 import org.zotero.android.screens.libraries.data.LibraryState
 import org.zotero.android.uicomponents.Drawables
 import org.zotero.android.uicomponents.Strings
+import org.zotero.android.uicomponents.foundation.debounceCombinedClickable
 import org.zotero.android.uicomponents.misc.NewDivider
 import org.zotero.android.uicomponents.theme.CustomTheme
 
@@ -48,7 +48,10 @@ internal fun LibrariesTable(
             LibrariesItem(
                 item = item,
                 isLastItem = index == viewState.customLibraries.size - 1,
-                onItemTapped = { viewModel.onCustomLibraryTapped(index) }
+                onItemTapped = { viewModel.onCustomLibraryTapped(index) },
+                onItemLongTapped = {
+                    //no-op
+                }
             )
         }
         item {
@@ -71,11 +74,21 @@ internal fun LibrariesTable(
                 NewDivider()
             }
             itemsIndexed(viewState.groupLibraries) { index, item ->
-                LibrariesItem(
-                    item = item,
-                    isLastItem = index == viewState.groupLibraries.size - 1,
-                    onItemTapped = { viewModel.onGroupLibraryTapped(index) }
-                )
+                Box {
+                    if (viewState.groupIdForDeletePopup == item.id) {
+                        DeleteGroupPopup(
+                            onDeleteGroup = { viewModel.showDeleteGroupQuestion(item.id, item.name) },
+                            dismissDeleteGroupPopup = { viewModel.dismissDeleteGroupPopup() },
+                        )
+                    }
+                    LibrariesItem(
+                        item = item,
+                        isLastItem = index == viewState.groupLibraries.size - 1,
+                        onItemTapped = { viewModel.onGroupLibraryTapped(index) },
+                        onItemLongTapped = { viewModel.showDeleteGroupPopup(item) }
+                    )
+                }
+
             }
             item {
                 NewDivider()
@@ -88,7 +101,8 @@ internal fun LibrariesTable(
 private fun LibrariesItem(
     item: LibraryRowData,
     isLastItem: Boolean,
-    onItemTapped: () -> Unit
+    onItemTapped: () -> Unit,
+    onItemLongTapped: () -> Unit,
 ) {
     Box {
         Row(
@@ -97,10 +111,11 @@ private fun LibrariesItem(
 //                .fillMaxWidth()
                 .height(44.dp)
                 .background(CustomTheme.colors.surface)
-                .combinedClickable(
+                .debounceCombinedClickable(
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = rememberRipple(),
-                    onClick = { onItemTapped() },
+                    indication = ripple(),
+                    onClick = onItemTapped,
+                    onLongClick = onItemLongTapped,
                 )
         ) {
             Spacer(modifier = Modifier.width(16.dp))

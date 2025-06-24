@@ -1,0 +1,71 @@
+package org.zotero.android.pdf.annotation.row
+
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import org.zotero.android.architecture.ui.CustomLayoutSize
+import org.zotero.android.pdf.annotation.CommentSection
+import org.zotero.android.pdf.annotation.SizeSelector
+import org.zotero.android.pdf.annotation.TagsSection
+import org.zotero.android.pdf.data.PDFAnnotation
+import org.zotero.android.pdf.reader.sidebar.SidebarDivider
+import org.zotero.android.sync.Tag
+
+@Composable
+internal fun PdfAnnotationInkRow(
+    annotation: PDFAnnotation,
+    layoutType: CustomLayoutSize.LayoutType,
+    commentFocusText: String,
+    onCommentTextChange: (String) -> Unit,
+    tags: List<Tag>,
+    onTagsClicked: () -> Unit,
+    size: Float,
+    onSizeChanged: (Float) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 0.dp, bottom = 8.dp)
+    ) {
+        CommentSection(
+            annotation = annotation,
+            layoutType = layoutType,
+            commentFocusText = commentFocusText,
+            onCommentTextChange = onCommentTextChange,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+
+        if (annotation.isZoteroAnnotation) {
+            SidebarDivider(
+                modifier = Modifier
+                    .height(1.dp)
+                    .fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            SizeSelector(
+                layoutType = layoutType,
+                size = size,
+                onSizeChanged = onSizeChanged,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            SidebarDivider(
+                modifier = Modifier
+                    .height(1.dp)
+                    .fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            TagsSection(
+                layoutType = layoutType,
+                tags = tags,
+                onTagsClicked = onTagsClicked,
+            )
+        }
+
+    }
+}
+

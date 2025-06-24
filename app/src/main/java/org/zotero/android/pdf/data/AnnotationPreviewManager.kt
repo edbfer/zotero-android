@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.graphics.Rect
 import androidx.core.graphics.scale
 import com.pspdfkit.annotations.Annotation
+import com.pspdfkit.annotations.FreeTextAnnotation
 import com.pspdfkit.annotations.InkAnnotation
 import com.pspdfkit.configuration.rendering.PageRenderConfiguration
 import com.pspdfkit.document.PdfDocument
@@ -19,6 +20,7 @@ import org.zotero.android.ktx.previewId
 import org.zotero.android.ktx.shouldRenderPreview
 import org.zotero.android.pdf.cache.AnnotationPreviewMemoryCache
 import org.zotero.android.sync.LibraryIdentifier
+import timber.log.Timber
 import java.io.FileOutputStream
 import java.util.Collections
 import javax.inject.Inject
@@ -26,7 +28,7 @@ import javax.inject.Singleton
 
 @Singleton
 class AnnotationPreviewManager @Inject constructor(
-    dispatchers: Dispatchers,
+    private val dispatchers: Dispatchers,
     private val fileStore: FileStore,
     private val memoryCache: AnnotationPreviewMemoryCache,
     private val context: Context,
@@ -42,9 +44,6 @@ class AnnotationPreviewManager @Inject constructor(
         isDark: Boolean,
         annotationMaxSideSize: Int,
     ) {
-        if (!annotation.shouldRenderPreview || !annotation.isZoteroAnnotation) {
-            return
-        }
         enqueue(
             annotation = annotation,
             key = annotation.previewId,
@@ -103,7 +102,7 @@ class AnnotationPreviewManager @Inject constructor(
         isDark: Boolean = false,
         bitmapSize: Int
     ) = coroutineScope.launch {
-        if (currentlyProcessingAnnotations.contains(key)) {
+        if (currentlyProcessingAnnotations.contains(key) || !isAnnotationInDrawableState(annotation)) {
             return@launch
         }
         currentlyProcessingAnnotations.add(key)
@@ -114,7 +113,11 @@ class AnnotationPreviewManager @Inject constructor(
             maxSide = bitmapSize
         )
 
-        val shouldDrawAnnotation = annotation is InkAnnotation
+        if (!isAnnotationInDrawableState(annotation)) {
+            return@launch
+        }
+
+        val shouldDrawAnnotation = annotation is InkAnnotation || annotation is FreeTextAnnotation
         if (shouldDrawAnnotation) {
             drawAnnotationOnBitmap(resultBitmap, annotation)
         }
@@ -179,6 +182,10 @@ class AnnotationPreviewManager @Inject constructor(
         val resultScale = scaleX.coerceAtLeast(scaleY)
         val resultVideoViewWidth = (width / resultScale).toInt()
         val resultVideoViewHeight = (height / resultScale).toInt()
+        if (resultVideoViewWidth == 0 || resultVideoViewHeight == 0) {
+            throw Exception("An attempt to create an AnnotationPreview for annotation of type ${annotation.type} resulting in a zero scale dimension. width = $width, height = $height, maxSide = $maxSide, resultVideoViewWidth = $resultVideoViewWidth, resultVideoViewHeight = $resultVideoViewHeight")
+        }
+
         return rawDocumentBitmap.scale(resultVideoViewWidth, resultVideoViewHeight, true)
     }
 
@@ -220,8 +227,18 @@ class AnnotationPreviewManager @Inject constructor(
         tempFile.renameTo(finalFile)
     }
 
+    fun isAnnotationInDrawableState(annotation: Annotation): Boolean {
+        val isInDrawableState =
+            annotation.shouldRenderPreview && annotation.isZoteroAnnotation && annotation.isAttached
+        if (!annotation.isAttached) {
+            Timber.w("Trying to draw an annotation while it's not in an attached state. Skipping.")
+        }
+        return isInDrawableState
+    }
+
     fun cancelProcessing() {
         currentlyProcessingAnnotations.clear()
         coroutineScope.cancel()
+        coroutineScope = CoroutineScope(dispatchers.default)
     }
 }

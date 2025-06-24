@@ -15,7 +15,7 @@ import com.google.gson.JsonObject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
-import org.zotero.android.api.NoAuthenticationApi
+import org.zotero.android.api.NonZoteroApi
 import org.zotero.android.api.network.CustomResult
 import org.zotero.android.api.network.safeApiCall
 import org.zotero.android.architecture.coroutines.Dispatchers
@@ -31,9 +31,10 @@ class TranslatorWebViewHandler @Inject constructor(
     dispatchers: Dispatchers,
     private val context: Context,
     private val gson: Gson,
-    private val noAuthenticationApi: NoAuthenticationApi,
+    private val nonZoteroApi: NonZoteroApi,
 ) {
     private val uiMainCoroutineScope = CoroutineScope(dispatchers.main)
+    private var wasPageAlreadyFullyLoaded: Boolean = false
 
     private lateinit var webView: WebView
     private lateinit var webViewPort: WebMessagePort
@@ -77,6 +78,11 @@ class TranslatorWebViewHandler @Inject constructor(
                 }
 
                 override fun onPageFinished(view: WebView, url: String) {
+                    //Fix for onPageFinished getting called twice for some webpages
+                    if (wasPageAlreadyFullyLoaded || view.progress != 100) {
+                        return
+                    }
+                    wasPageAlreadyFullyLoaded = true
                     val channel = webView.createWebMessageChannel()
                     val port = channel[0]
                     this@TranslatorWebViewHandler.webViewPort = port
@@ -187,20 +193,24 @@ class TranslatorWebViewHandler @Inject constructor(
         if (this.referrer != null) {
             headers["Referer"] = this.referrer!!
         }
+
         if (this.cookies != null) {
             headers["Cookie"] = this.cookies!!
         }
         val networkResult = safeApiCall {
             when (method) {
                 "GET" -> {
-                    noAuthenticationApi.sendWebViewGet(
+                    nonZoteroApi.sendWebViewGet(
                         url = url,
                         headers = headers,
                     )
                 }
 
                 "POST" -> {
-                    noAuthenticationApi.sendWebViewPost(
+                    if (headers["Content-Type"] == null) {
+                        headers["Content-Type"] = "application/x-www-form-urlencoded"
+                    }
+                    nonZoteroApi.sendWebViewPost(
                         url = url,
                         headers = headers,
                         textBody = body

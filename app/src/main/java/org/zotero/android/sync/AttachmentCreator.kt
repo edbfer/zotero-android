@@ -1,6 +1,8 @@
 package org.zotero.android.sync
 
 import android.webkit.MimeTypeMap
+import org.zotero.android.androidx.file.copyWithExt
+import org.zotero.android.architecture.Defaults
 import org.zotero.android.database.objects.Attachment
 import org.zotero.android.database.objects.FieldKeys
 import org.zotero.android.database.objects.ItemTypes
@@ -11,6 +13,7 @@ import org.zotero.android.files.FileStore
 import timber.log.Timber
 import java.io.File
 import java.util.Date
+import kotlin.Int
 
 class AttachmentCreator {
 
@@ -26,13 +29,14 @@ class AttachmentCreator {
     companion object {
         private val mainAttachmentContentTypes = setOf("text/html", "application/pdf", "image/png", "image/jpeg", "image/gif", "text/plain")
 
-        fun mainAttachment(item: RItem, fileStorage: FileStore): Attachment? {
+        fun mainAttachment(item: RItem, fileStorage: FileStore, defaults: Defaults): Attachment? {
             if (item.rawType == ItemTypes.attachment) {
                 val attachment = attachment(
                     item = item,
                     fileStorage = fileStorage,
                     urlDetector = null,
-                    isForceRemote = false
+                    isForceRemote = false,
+                    defaults = defaults,
                 )
                 if (attachment != null) {
                     when {
@@ -54,20 +58,7 @@ class AttachmentCreator {
                 return null
             }
 
-            attachmentData = attachmentData.sortedWith { lData, rData ->
-                mainAttachmentsAreInIncreasingOrder(
-                    lData = Triple(
-                        lData.contentType,
-                        lData.hasMatchingUrlWithParent,
-                        lData.dateAdded
-                    ),
-                    rData = Triple(
-                        rData.contentType,
-                        rData.hasMatchingUrlWithParent,
-                        rData.dateAdded
-                    )
-                )
-            }
+            attachmentData = sortAttachmentData(attachmentData)
 
             val firstAttachmentData = attachmentData.firstOrNull()
             if (firstAttachmentData == null) {
@@ -85,12 +76,13 @@ class AttachmentCreator {
             val libraryId = rAttachment?.libraryId
             if (libraryId != null) {
                 val type = importedType(
-                    rAttachment,
+                    item = rAttachment,
                     contentType = contentType,
                     libraryId = libraryId,
                     fileStorage = fileStorage,
                     isForceRemote = false,
-                    linkType = linkType
+                    linkType = linkType,
+                    defaults = defaults,
                 )
                 if (type != null) {
                     return Attachment.initWithItemAndKind(item = rAttachment, type = type)
@@ -132,14 +124,16 @@ class AttachmentCreator {
             options: Options = Options.light,
             fileStorage: FileStore,
             isForceRemote: Boolean,
-            urlDetector: UrlDetector?
+            urlDetector: UrlDetector?,
+            defaults: Defaults,
         ): Attachment? {
             return attachmentType(
                 item,
                 options = options,
                 fileStorage = fileStorage,
                 urlDetector = urlDetector,
-                isForceRemote = isForceRemote
+                isForceRemote = isForceRemote,
+                defaults = defaults,
             )?.let { Attachment.initWithItemAndKind(item = item, type = it) }
         }
 
@@ -148,7 +142,8 @@ class AttachmentCreator {
             options: Options = Options.light,
             fileStorage: FileStore,
             isForceRemote: Boolean,
-            urlDetector: UrlDetector?
+            urlDetector: UrlDetector?,
+            defaults: Defaults,
         ): Attachment.Kind? {
             val linkMode = item.fields.firstOrNull { it.key == FieldKeys.Item.Attachment.linkMode }
                 ?.let { LinkMode.from(it.value) }
@@ -164,11 +159,12 @@ class AttachmentCreator {
             when (linkMode) {
                 LinkMode.importedFile -> {
                     return importedType(
-                        item,
+                        item = item,
                         libraryId = libraryId,
                         fileStorage = fileStorage,
                         isForceRemote = isForceRemote,
-                        linkType = Attachment.FileLinkType.importedFile
+                        linkType = Attachment.FileLinkType.importedFile,
+                        defaults = defaults,
                     )
                 }
                 LinkMode.embeddedImage -> {
@@ -177,16 +173,18 @@ class AttachmentCreator {
                         libraryId = libraryId,
                         options = options,
                         isForceRemote = isForceRemote,
-                        fileStorage = fileStorage
+                        fileStorage = fileStorage,
+                        defaults = defaults,
                     )
                 }
                 LinkMode.importedUrl -> {
                     return importedType(
-                        item,
+                        item = item,
                         libraryId = libraryId,
                         fileStorage = fileStorage,
                         isForceRemote = isForceRemote,
-                        linkType = Attachment.FileLinkType.importedUrl
+                        linkType = Attachment.FileLinkType.importedUrl,
+                        defaults = defaults,
                     )
                 }
 
@@ -208,16 +206,18 @@ class AttachmentCreator {
             libraryId: LibraryIdentifier,
             fileStorage: FileStore,
             isForceRemote: Boolean,
-            linkType: Attachment.FileLinkType
+            linkType: Attachment.FileLinkType,
+            defaults: Defaults,
         ): Attachment.Kind? {
             val contentType = contentType(item) ?: return null
             return importedType(
-                item,
+                item = item,
                 contentType = contentType,
                 libraryId = libraryId,
                 fileStorage = fileStorage,
                 isForceRemote = isForceRemote,
-                linkType = linkType
+                linkType = linkType,
+                defaults = defaults,
             )
         }
 
@@ -227,18 +227,25 @@ class AttachmentCreator {
             libraryId: LibraryIdentifier,
             fileStorage: FileStore,
             isForceRemote: Boolean,
-            linkType: Attachment.FileLinkType
+            linkType: Attachment.FileLinkType,
+            defaults: Defaults,
         ): Attachment.Kind {
             val filename = filename(
                 item,
                 ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(contentType)
             )
             val file = fileStorage.attachmentFile(
-                libraryId,
+                libraryId = libraryId,
                 key = item.key,
                 filename = filename,
             )
-            val location = location(item, file = file, fileStorage = fileStorage, isForceRemote = isForceRemote)
+            val location = location(
+                item = item,
+                file = file,
+                fileStorage = fileStorage,
+                isForceRemote = isForceRemote,
+                defaults = defaults
+            )
             return Attachment.Kind.file(
                 filename = filename,
                 contentType = contentType,
@@ -303,20 +310,21 @@ class AttachmentCreator {
             item: RItem,
             file: File,
             fileStorage: FileStore,
-            isForceRemote: Boolean
+            isForceRemote: Boolean,
+            defaults: Defaults,
         ): Attachment.FileLocation {
             if (isForceRemote) {
                 return Attachment.FileLocation.remote
             }
-            if (file.exists()) {
+            val webDavEnabled = defaults.isWebDavEnabled()
+            if (file.exists()|| (webDavEnabled && file.copyWithExt("zip").exists())) {
                 val md5 = fileStorage.md5(file)
                 if (!item.backendMd5.isEmpty() && md5 != item.backendMd5) {
                     return Attachment.FileLocation.localAndChangedRemotely
                 } else {
                     return Attachment.FileLocation.local
                 }
-                //TODO check if webdav enabled
-            } else if (item.links.firstOrNull { it.type == LinkType.enclosure.name } != null) {
+            } else if (webDavEnabled || item.links.firstOrNull { it.type == LinkType.enclosure.name } != null) {
                 return Attachment.FileLocation.remote
             } else {
                 return Attachment.FileLocation.remoteMissing
@@ -329,6 +337,7 @@ class AttachmentCreator {
             options: Options,
             fileStorage: FileStore,
             isForceRemote: Boolean,
+            defaults: Defaults,
         ): Attachment.Kind? {
             val parent = item.parent
             if (parent == null) {
@@ -351,7 +360,13 @@ class AttachmentCreator {
                 libraryId = libraryId,
                 isDark = options == Options.dark
             )
-            val location = location(item, file = file, fileStorage = fileStorage, isForceRemote)
+            val location = location(
+                item = item,
+                file = file,
+                fileStorage = fileStorage,
+                isForceRemote = isForceRemote,
+                defaults = defaults
+            )
             val filename = filename(item, ext = "png")
             return Attachment.Kind.file(
                 filename = filename,
@@ -375,19 +390,58 @@ class AttachmentCreator {
             return Attachment.Kind.url(urlString)
         }
 
-        private fun mainAttachmentsAreInIncreasingOrder(lData: Triple<String, Boolean, Date>, rData: Triple<String, Boolean, Date>): Int {
-            val lPriority = priority(lData.first)
-            val rPriority = priority(rData.first)
+        private fun sortAttachmentData(unsortedAttachmentData: List<AttachmentData>): List<AttachmentData> {
+            val debugData = unsortedAttachmentData.map {
+                "Triple(\"${it.contentType}\", ${it.hasMatchingUrlWithParent}, Date(${it.dateAdded.time}))"
+            }.joinToString(separator = ", ") { it }
 
-            if(lPriority != rPriority) {
-                return lPriority.compareTo(rPriority)
+            try {
+                return mainAttachmentsAreInIncreasingOrderV1(unsortedAttachmentData)
+            } catch (e: Exception) {
+                Timber.e(e, "Sorting attachmentData using V1 method failed. Debug data = $debugData")
             }
 
-            if( lData.second != rData.second) {
-                return (lData.second).compareTo(!(rData.second))
-            }
+            Timber.w("Attempting to sort attachmentData with V2 method")
 
-            return lData.third.compareTo(rData.third)
+            try {
+                return mainAttachmentsAreInIncreasingOrderV2(unsortedAttachmentData)
+            } catch (e: Exception) {
+                Timber.e(e, "Sorting attachmentData using V2 method failed. Debug data = $debugData")
+            }
+            Timber.w("Returning unsorted attachmentData as a last resort")
+            return unsortedAttachmentData
+        }
+
+        private fun mainAttachmentsAreInIncreasingOrderV1(unsortedAttachmentData: List<AttachmentData>): List<AttachmentData> {
+            return unsortedAttachmentData.sortedWith { lData, rData ->
+                val lPriority = priority(lData.contentType)
+                val rPriority = priority(rData.contentType)
+
+                if (lPriority != rPriority) {
+                    return@sortedWith lPriority.compareTo(rPriority)
+                }
+
+                if (lData.hasMatchingUrlWithParent != rData.hasMatchingUrlWithParent) {
+                    return@sortedWith (lData.hasMatchingUrlWithParent).compareTo(!(rData.hasMatchingUrlWithParent))
+                }
+                return@sortedWith lData.dateAdded.compareTo(rData.dateAdded)
+            }
+        }
+
+        private fun mainAttachmentsAreInIncreasingOrderV2(unsortedAttachmentData: List<AttachmentData>): List<AttachmentData> {
+            return unsortedAttachmentData.sortedWith { lData, rData ->
+                val lPriority = priority(lData.contentType)
+                val rPriority = priority(rData.contentType)
+
+                if (lPriority != rPriority) {
+                    return@sortedWith lPriority.compareTo(rPriority)
+                }
+
+                if (lData.hasMatchingUrlWithParent != rData.hasMatchingUrlWithParent) {
+                    return@sortedWith (lData.hasMatchingUrlWithParent).compareTo((rData.hasMatchingUrlWithParent))
+                }
+                return@sortedWith lData.dateAdded.compareTo(rData.dateAdded)
+            }
         }
 
 
@@ -407,12 +461,12 @@ class AttachmentCreator {
             return Attachment.Kind.file(filename = filename, contentType = contentType, location = Attachment.FileLocation.local, linkType = Attachment.FileLinkType.linkedFile)
         }
         private fun priority(contentType: String): Int {
-            when (contentType) {
-                "application/pdf" -> return 0
-                "text/html" -> return 1
-                "image/gif", "image/jpeg", "image/png" -> return 2
-                "text/plain" -> return 3
-                 else -> return 4
+            return when (contentType) {
+                "application/pdf" -> 0
+                "text/html" -> 1
+                "image/gif", "image/jpeg", "image/png" -> 2
+                "text/plain" -> 3
+                else -> 4
             }
         }
     }

@@ -9,12 +9,12 @@ import okhttp3.Request
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
-import org.zotero.android.api.ForWebSocket
+import org.zotero.android.api.annotations.ForWebSocketApi
 import org.zotero.android.api.mappers.ChangeWsResponseMapper
 import org.zotero.android.api.mappers.WsResponseMapper
 import org.zotero.android.architecture.core.EventStream
 import org.zotero.android.architecture.coroutines.ApplicationScope
-import org.zotero.android.database.DbWrapper
+import org.zotero.android.database.DbWrapperMain
 import org.zotero.android.database.requests.ReadVersionDbRequest
 import org.zotero.android.websocket.ChangeWsResponse
 import org.zotero.android.websocket.Command
@@ -54,10 +54,10 @@ private data class Response(
 
 @Singleton
 class WebSocketController @Inject constructor(
-    val dbWrapper: DbWrapper,
+    val dbWrapperMain: DbWrapperMain,
     val observable: ChangeWsResponseKindEventStream,
     val dispatcher: CoroutineDispatcher,
-    @ForWebSocket
+    @ForWebSocketApi
     private val okHttpClient: OkHttpClient,
     private val wsResponseMapper: WsResponseMapper,
     private val changeWsResponseMapper: ChangeWsResponseMapper,
@@ -73,8 +73,9 @@ class WebSocketController @Inject constructor(
         object notConnected: Error()
     }
     private val completionTimeout = 1500L // miliseconds
-    private val messageTimeout: Int = 300
-    private val disconnectionTimeout: Int = 5
+    private val messageTimeout: Int = 30 //seconds
+    private val disconnectionTimeout: Int = 5 //seconds
+    //in seconds
     private val retryIntervals: List<Int> = listOf(
         2, 5, 10, 15, 30,
         60, 60, 60, 60,
@@ -95,7 +96,6 @@ class WebSocketController @Inject constructor(
     private var connectionRetryCount: Int = 0
     private var connectionTimer: BackgroundTimer? = null
     private var completionAction: (() -> Unit)? = null
-    private var completionTimer: BackgroundTimer? = null
     private val url: String = "wss://stream.zotero.org"
 
     private var coroutineScope = CoroutineScope(dispatcher)
@@ -133,39 +133,31 @@ class WebSocketController @Inject constructor(
         }
         if (completed != null) {
             this.completionAction = completed
-
-            val completionTimer = BackgroundTimer(timeIntervalMs = this.completionTimeout) {
-                this.completionAction?.let { it() }
-                this.completionAction = null
-                this.completionTimer = null
-            }
-            completionTimer.resume()
-            this.completionTimer = completionTimer
         }
 
         webSocket = okHttpClient.newWebSocket(
             Request.Builder().url(this.url).get().build(),
             object : WebSocketListener() {
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                    Timber.i("onClosed, code:$code, reason:$reason")
+                    Timber.i("WebSocketController: onClosed, code:$code, reason:$reason")
                     reconnect()
                 }
 
                 override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                    Timber.i("onClosing, code:$code, reason:$reason")
+                    Timber.i("WebSocketController: onClosing, code:$code, reason:$reason")
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: okhttp3.Response?) {
-                    Timber.i(t, "onFailure, response:$response")
+                    Timber.i(t, "WebSocketController: onFailure, response:$response")
                     reconnect()
                 }
 
                 override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
-                    Timber.i("onOpen")
+                    Timber.i("WebSocketController: onOpen")
                 }
 
                 override fun onMessage(webSocket: WebSocket, text: String) {
-                    Timber.i("onMessage, text:$text")
+                    Timber.i("WebSocketController: onMessage, text:$text")
                     handle(text)
                 }
 
@@ -210,8 +202,6 @@ class WebSocketController @Inject constructor(
                 this.connectionRetryCount = 0
                 this.connectionTimer?.suspend()
                 this.connectionTimer = null
-                this.completionTimer?.suspend()
-                this.completionTimer = null
 
                 this.completionAction?.let { it() }
                 this.completionAction = null
@@ -240,7 +230,7 @@ class WebSocketController @Inject constructor(
         this.connectionRetryCount += 1
         Timber.i("WebSocketController: schedule retry attempt ${this.connectionRetryCount} interval ${interval}")
 
-        val timer = BackgroundTimer(timeIntervalMs = interval + 1000L) {
+        val timer = BackgroundTimer(timeIntervalMs = interval * 1000L) {
             when (this.connectionState){
                 ConnectionState.connecting, ConnectionState.disconnected -> {
                     _connect(apiKey = apiKey, completed = null)
@@ -275,7 +265,7 @@ class WebSocketController @Inject constructor(
 
         Timber.i("WebSocketController: schedule reconnect")
 
-        val timer = BackgroundTimer(timeIntervalMs = disconnectionTimeout + 1000L) {
+        val timer = BackgroundTimer(timeIntervalMs = disconnectionTimeout * 1000L) {
             _connect(apiKey = apiKey, completed = null)
             this.connectionTimer = null
         }
@@ -305,8 +295,6 @@ class WebSocketController @Inject constructor(
         this.connectionRetryCount = 0
         this.connectionTimer?.suspend()
         this.connectionTimer = null
-        this.completionTimer?.suspend()
-        this.completionTimer = null
         for ((_, response) in this.responseListeners) {
             response.timer.suspend()
         }
@@ -370,7 +358,7 @@ class WebSocketController @Inject constructor(
                 }
 
                 try {
-                    val localVersion = dbWrapper.realmDbStorage.perform(
+                    val localVersion = dbWrapperMain.realmDbStorage.perform(
                         ReadVersionDbRequest(libraryId = responseType.libraryIdentifier),
                         invalidateRealm = true
                     )
@@ -402,5 +390,20 @@ class WebSocketController @Inject constructor(
             Timber.e(error, "WebSocketController: message error ${message}")
             completion(Error.cantCreateMessage)
         }
+    }
+
+    fun maybeReconnect(completed: (() -> Unit)? = null) {
+        Timber.i("WebSocketController: maybeReconnect called $apiKey $connectionState ")
+        val apiKey = this.apiKey
+        if (apiKey != null && setOf(
+                ConnectionState.disconnected,
+                ConnectionState.connecting
+            ).contains(this@WebSocketController.connectionState)
+        ) {
+            Timber.i("WebSocketController: maybeReconnect initiated")
+            disconnect()
+            connect(apiKey = apiKey, completed = completed)
+        }
+
     }
 }

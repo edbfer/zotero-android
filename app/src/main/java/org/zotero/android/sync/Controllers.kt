@@ -10,19 +10,20 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import org.apache.commons.io.FileUtils
-import org.zotero.android.api.BundleDataDb
 import org.zotero.android.architecture.core.EventStream
 import org.zotero.android.architecture.coroutines.ApplicationScope
 import org.zotero.android.architecture.coroutines.Dispatchers
 import org.zotero.android.architecture.logging.crash.CrashReporter
 import org.zotero.android.architecture.logging.debug.DebugLogging
 import org.zotero.android.attachmentdownloader.AttachmentDownloader
-import org.zotero.android.database.DbWrapper
+import org.zotero.android.database.DbWrapperBundle
+import org.zotero.android.database.DbWrapperMain
 import org.zotero.android.files.FileStore
+import org.zotero.android.pdfworker.loader.PdfWorkerLoader
+import org.zotero.android.screens.addbyidentifier.IdentifierLookupController
 import org.zotero.android.screens.share.backgroundprocessor.BackgroundUploadProcessor
 import org.zotero.android.translator.loader.TranslationLoader
 import org.zotero.android.translator.loader.TranslatorsLoader
-import org.zotero.android.uicomponents.addbyidentifier.IdentifierLookupController
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -35,9 +36,8 @@ class Controllers @Inject constructor(
     private val sessionDataEventStream: SessionDataEventStream,
     private val applicationScope: ApplicationScope,
     private val fileStore: FileStore,
-    private val dbWrapper: DbWrapper,
-    @BundleDataDb
-    private val bundleDataDbWrapper: DbWrapper,
+    private val dbWrapperMain: DbWrapperMain,
+    private val bundleDataDbWrapper: DbWrapperBundle,
     private val isUserInitializedEventStream: IsUserInitializedEventStream,
     private val sessionController: SessionController,
     private val userControllers: UserControllers,
@@ -47,6 +47,7 @@ class Controllers @Inject constructor(
     private val crashReporter: CrashReporter,
     private val translatorsLoader: TranslatorsLoader,
     private val translationLoader: TranslationLoader,
+    private val pdfWorkerLoader: PdfWorkerLoader,
     private val context: Context,
     private val identifierLookupController: IdentifierLookupController,
     ) {
@@ -68,7 +69,7 @@ class Controllers @Inject constructor(
     }
 
     private fun startApp() {
-        updateTranslatorAndTranslatorItems()
+        updateBundledItems()
         val controllers = this.userControllers
         val session = this.sessionDataEventStream.currentValue()
         if (session != null && controllers.isControllerInitialized) {
@@ -76,11 +77,12 @@ class Controllers @Inject constructor(
         }
     }
 
-    private fun updateTranslatorAndTranslatorItems() {
+    private fun updateBundledItems() {
         coroutineScope.launch {
             try {
                 translationLoader.updateTranslationIfNeeded()
                 translatorsLoader.updateTranslatorItemsIfNeeded()
+                pdfWorkerLoader.updatePdfWorkerIfNeeded()
             } catch (e: Exception) {
                 Timber.e(e, "Failed to update Translator or translation items")
             }
@@ -142,7 +144,7 @@ class Controllers @Inject constructor(
 
             val realmError = error as? RealmError
             if (realmError != null) {
-                dbWrapper.clearDatabaseFiles()
+                dbWrapperMain.clearDatabaseFiles()
             }
 
             isUserInitializedEventStream.emit(false)
@@ -160,11 +162,12 @@ class Controllers @Inject constructor(
         FileUtils.deleteDirectory(fileStore.cache())
         FileUtils.deleteDirectory(fileStore.jsonCache)
         FileUtils.deleteDirectory(fileStore.annotationPreviews)
+        FileUtils.deleteDirectory(fileStore.pageThumbnails)
         FileUtils.deleteDirectory(fileStore.uploads)
         FileUtils.deleteDirectory(fileStore.downloads)
         isUserInitializedEventStream.emit(false)
-        if (dbWrapper.isInitialized) {
-            dbWrapper.clearDatabaseFiles()
+        if (dbWrapperMain.isInitialized) {
+            dbWrapperMain.clearDatabaseFiles()
         }
     }
 
@@ -172,6 +175,7 @@ class Controllers @Inject constructor(
         if (!this.didInitialize) {
             return
         }
+        userControllers.maybeReconnectWebsockets()
 //        startApp()
     }
 
@@ -188,6 +192,6 @@ class Controllers @Inject constructor(
     }
 
     private fun createBundleDataDbStorage() {
-        bundleDataDbWrapper.initBundleDataConfiguration(this.fileStore)
+        bundleDataDbWrapper.initBundleDataConfiguration()
     }
 }

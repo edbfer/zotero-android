@@ -1,5 +1,6 @@
 package org.zotero.android.pdf.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -22,7 +23,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import org.zotero.android.architecture.ui.CustomLayoutSize
-import org.zotero.android.pdf.settings.PdfSettingsViewEffect.NavigateBack
+import org.zotero.android.pdf.settings.data.PdfSettingsArgs
 import org.zotero.android.pdf.settings.data.PdfSettingsOptions
 import org.zotero.android.uicomponents.CustomScaffold
 import org.zotero.android.uicomponents.Strings
@@ -34,27 +35,33 @@ import org.zotero.android.uicomponents.theme.CustomThemeWithStatusAndNavBars
 
 @Composable
 internal fun PdfSettingsScreen(
+    args: PdfSettingsArgs?,
     onBack: () -> Unit,
     viewModel: PdfSettingsViewModel = hiltViewModel(),
 ) {
-    viewModel.init()
+
+    val sendParamsAndBack: () -> Unit = {
+        viewModel.sendSettingsParams()
+        onBack()
+    }
+
+    BackHandler(onBack = {
+        sendParamsAndBack()
+    })
+    LaunchedEffect(Unit) {
+        viewModel.init(args = args)
+    }
+
     viewModel.setOsTheme(isDark = isSystemInDarkTheme())
     val viewState by viewModel.viewStates.observeAsState(PdfSettingsViewState())
-    val viewEffect by viewModel.viewEffects.observeAsState()
     CustomThemeWithStatusAndNavBars(
         isDarkTheme = viewState.isDark,
         statusBarBackgroundColor = CustomTheme.colors.topBarBackgroundColor
     ) {
-        LaunchedEffect(key1 = viewEffect) {
-            when (viewEffect?.consume()) {
-                NavigateBack -> onBack()
-                null -> Unit
-            }
-        }
         CustomScaffold(
             topBar = {
                 PdfSettingsTopBar(
-                    onDone = onBack,
+                    onDone = sendParamsAndBack,
                 )
             },
         ) {

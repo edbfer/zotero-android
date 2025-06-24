@@ -1,5 +1,6 @@
 package dependencyplugins
 
+import Libs
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 
@@ -19,14 +20,11 @@ private fun configure(project: Project) {
         add("implementation", Libs.AndroidX.activity)
         add("implementation", Libs.AndroidX.constraintLayout)
         add("implementation", Libs.AndroidX.constraintLayoutSolver)
-        add("implementation", Libs.AndroidX.swipeRefreshLayout)
 
         add("implementation", Libs.AndroidX.Lifecycle.lifecycleRuntime)
         add("implementation", Libs.AndroidX.Lifecycle.commonJava8)
         add("implementation", Libs.AndroidX.Lifecycle.liveData)
         add("implementation", Libs.AndroidX.Lifecycle.process)
-
-        add("implementation", Libs.AndroidX.Work.runtime)
 
     }
 }

@@ -5,7 +5,6 @@ import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.Icon
 import androidx.compose.material.Text
-import androidx.compose.material.ripple.rememberRipple
+import androidx.compose.material.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -46,6 +45,7 @@ import org.zotero.android.uicomponents.attachmentprogress.FileAttachmentView
 import org.zotero.android.uicomponents.attachmentprogress.State
 import org.zotero.android.uicomponents.attachmentprogress.Style
 import org.zotero.android.uicomponents.checkbox.CircleCheckBox
+import org.zotero.android.uicomponents.foundation.debounceCombinedClickable
 import org.zotero.android.uicomponents.foundation.safeClickable
 import org.zotero.android.uicomponents.misc.CustomDivider
 import org.zotero.android.uicomponents.reorder.ReorderableState
@@ -72,7 +72,7 @@ internal fun FieldRow(
             .safeClickable(
                 onClick = onRowTapped,
                 interactionSource = remember { MutableInteractionSource() },
-                indication = rememberRipple(bounded = true)
+                indication = ripple(bounded = true)
             )
     ) {
         Spacer(modifier = Modifier.height(2.dp))
@@ -85,7 +85,7 @@ internal fun FieldRow(
                         .safeClickable(
                             onClick = onDelete,
                             interactionSource = remember { MutableInteractionSource() },
-                            indication = rememberRipple(bounded = false)
+                            indication = ripple(bounded = false)
                         )
                         .padding(start = 4.dp),
                     painter = painterResource(id = Drawables.do_not_disturb_on_24px),
@@ -152,7 +152,7 @@ fun AddItemRow(
         modifier = Modifier
             .safeClickable(
                 interactionSource = remember { MutableInteractionSource() },
-                indication = rememberRipple(),
+                indication = ripple(),
                 onClick = onClick
             )
     ) {
@@ -196,12 +196,18 @@ fun DatesRows(
         detailValue = dateFormatItemDetails().format(dateAdded),
         layoutType = layoutType,
         showDivider = showDivider,
+        onRowTapped = {
+            //no action on tap, but still show ripple effect
+        }
     )
     FieldRow(
         stringResource(id = Strings.date_modified),
         dateFormatItemDetails().format(dateModified),
         layoutType,
         showDivider = showDivider,
+        onRowTapped = {
+            //no action on tap, but still show ripple effect
+        }
     )
 }
 
@@ -254,9 +260,9 @@ private fun LazyListScope.listOfNotes(
     itemsIndexed(
         itemTitles
     ) { index, item ->
-        Column(modifier = Modifier.combinedClickable(
+        Column(modifier = Modifier.debounceCombinedClickable(
             interactionSource = remember { MutableInteractionSource() },
-            indication = rememberRipple(),
+            indication = ripple(),
             onClick = { onItemClicked(index) },
             onLongClick = { onItemLongClicked(index) }
         )) {
@@ -332,9 +338,9 @@ private fun LazyListScope.listOfTags(
     items(
         viewState.tags
     ) { item ->
-        Column(modifier = Modifier.combinedClickable(
+        Column(modifier = Modifier.debounceCombinedClickable(
             interactionSource = remember { MutableInteractionSource() },
-            indication = rememberRipple(),
+            indication = ripple(),
             onClick = {},
             onLongClick = { viewModel.onTagLongClick(item) }
         )) {
@@ -387,9 +393,9 @@ private fun LazyListScope.listOfAttachments(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .combinedClickable(
+                    .debounceCombinedClickable(
                         interactionSource = remember { MutableInteractionSource() },
-                        indication = rememberRipple(),
+                        indication = ripple(),
                         onClick = { viewModel.openAttachment(item) },
                         onLongClick = { viewModel.onAttachmentLongClick(item) },
                     )

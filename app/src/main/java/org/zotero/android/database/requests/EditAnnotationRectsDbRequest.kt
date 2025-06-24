@@ -10,7 +10,7 @@ import org.zotero.android.database.objects.RObjectChange
 import org.zotero.android.database.objects.RRect
 import org.zotero.android.database.objects.UpdatableChangeType
 import org.zotero.android.pdf.data.AnnotationBoundingBoxConverter
-import org.zotero.android.pdf.data.DatabaseAnnotation
+import org.zotero.android.pdf.data.PDFDatabaseAnnotation
 import org.zotero.android.sync.LibraryIdentifier
 
 class EditAnnotationRectsDbRequest(
@@ -24,7 +24,8 @@ class EditAnnotationRectsDbRequest(
 
     override fun process(database: Realm) {
         val item = database.where<RItem>().key(this.key, this.libraryId).findFirst() ?: return
-        val page = DatabaseAnnotation(item = item).page
+        val annotation = PDFDatabaseAnnotation.init(item = item)?: return
+        val page = annotation.page
         val dbRects =
             this.rects.map { this.boundingBoxConverter.convertToDb(rect = it, page = page) ?: it }
         if (!rects(dbRects, item.rects)) {
@@ -38,10 +39,15 @@ class EditAnnotationRectsDbRequest(
 
         for (rect in rects) {
             val rRect = database.createEmbeddedObject(RRect::class.java, item, "rects")
-            rRect.minX = rect.left.toDouble()
-            rRect.minY = rect.bottom.toDouble()
-            rRect.maxX = rect.right.toDouble()
-            rRect.maxY = rect.top.toDouble()
+            val minX = rect.left.toDouble()
+            val minY = rect.bottom.toDouble()
+            val maxX = rect.right.toDouble()
+            val maxY = rect.top.toDouble()
+
+            rRect.minX = minX
+            rRect.minY = minY
+            rRect.maxX = maxX
+            rRect.maxY = maxY
         }
 
         item.changes.add(RObjectChange.create(changes = listOf(RItemChanges.rects)))

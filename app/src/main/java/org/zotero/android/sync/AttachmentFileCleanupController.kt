@@ -7,7 +7,7 @@ import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import org.zotero.android.architecture.EventBusConstants
-import org.zotero.android.database.DbWrapper
+import org.zotero.android.database.DbWrapperMain
 import org.zotero.android.database.objects.Attachment
 import org.zotero.android.database.objects.ItemTypes
 import org.zotero.android.database.objects.RCustomLibraryType
@@ -30,12 +30,12 @@ import javax.inject.Singleton
 @Singleton
 class AttachmentFileCleanupController @Inject constructor(
     private val fileStorage: FileStore,
-    private val dbWrapper: DbWrapper,
-    private val dispatcher: CoroutineDispatcher,
+    private val dbWrapperMain: DbWrapperMain,
+    dispatcher: CoroutineDispatcher,
 ) {
     sealed class DeletionType {
         data class individual(val attachment: Attachment, val parentKey: String?) : DeletionType()
-        data class allForItems(val keys: Set<String>, val libraryId: LibraryIdentifier) :
+        data class allForItems(val keys: Set<String>, val libraryId: LibraryIdentifier, val collectionIdentifier: CollectionIdentifier?) :
             DeletionType()
 
         data class library(val libraryId: LibraryIdentifier) : DeletionType()
@@ -48,6 +48,7 @@ class AttachmentFileCleanupController @Inject constructor(
                     is library -> AttachmentFileDeletedNotification.library(this.libraryId)
                     is allForItems -> AttachmentFileDeletedNotification.allForItems(
                         keys = this.keys,
+                        collectionIdentifier = this.collectionIdentifier,
                         libraryId = libraryId
                     )
                     is individual -> AttachmentFileDeletedNotification.individual(
@@ -74,12 +75,9 @@ class AttachmentFileCleanupController @Inject constructor(
         coroutineScope.launch {
             val newTypes = delete(type)
 
-            if (newTypes.isEmpty() && completed == null) {
-                return@launch
-            }
-
             for (type in newTypes) {
-                EventBus.getDefault().post(EventBusConstants.AttachmentFileDeleted(type.notification))
+                EventBus.getDefault()
+                    .post(EventBusConstants.AttachmentFileDeleted(type.notification))
             }
             completed?.let { it(!newTypes.isEmpty()) }
         }
@@ -92,6 +90,7 @@ class AttachmentFileCleanupController @Inject constructor(
     private fun removeFiles(key: String, libraryId: LibraryIdentifier) {
         fileStorage.attachmentDirectory(libraryId = libraryId, key = key).deleteRecursively()
         fileStorage.annotationPreviews(pdfKey = key, libraryId = libraryId).deleteRecursively()
+        fileStorage.pageThumbnails(key = key, libraryId = libraryId).deleteRecursively()
     }
 
     private fun delete(type: DeletionType): List<DeletionType> {
@@ -99,10 +98,16 @@ class AttachmentFileCleanupController @Inject constructor(
             DeletionType.all -> {
                 deleteAll()
             }
+
             is DeletionType.allForItems -> {
-                deleteAttachments(type.keys, libraryId = type.libraryId)?.let { listOf(it) }
+                deleteAttachments(
+                    type.keys,
+                    libraryId = type.libraryId,
+                    collectionIdentifier = type.collectionIdentifier
+                )?.let { listOf(it) }
                     ?: emptyList()
             }
+
             is DeletionType.library -> delete(type.libraryId)?.let { listOf(it) } ?: emptyList()
             is DeletionType.individual -> {
                 return if (delete(attachment = type.attachment)) listOf(type) else emptyList()
@@ -115,7 +120,7 @@ class AttachmentFileCleanupController @Inject constructor(
             var libraryIds = listOf<LibraryIdentifier>()
             val forUpload = mutableMapOf<LibraryIdentifier, MutableList<String>>()
 
-            dbWrapper.realmDbStorage.perform { coordinator ->
+            dbWrapperMain.realmDbStorage.perform { coordinator ->
                 val groups = coordinator.perform(request = ReadAllGroupsDbRequest())
                 libraryIds =
                     listOf(LibraryIdentifier.custom(RCustomLibraryType.myLibrary)) + groups.map {
@@ -143,6 +148,7 @@ class AttachmentFileCleanupController @Inject constructor(
 
             val deletedIndividually = delete(libraryIds, forUpload = forUpload)
             fileStorage.annotationPreviews.deleteRecursively()
+            fileStorage.pageThumbnails.deleteRecursively()
             fileStorage.cache().deleteRecursively()
 
             if (deletedIndividually.isEmpty()) {
@@ -150,7 +156,11 @@ class AttachmentFileCleanupController @Inject constructor(
             }
 
             return deletedIndividually.map { entry ->
-                DeletionType.allForItems(entry.value, entry.key)
+                DeletionType.allForItems(
+                    keys = entry.value,
+                    libraryId = entry.key,
+                    collectionIdentifier = null
+                )
             }
         } catch (error: Exception) {
             Timber.e(error, "AttachmentFileCleanupController: can't remove download directory")
@@ -159,7 +169,11 @@ class AttachmentFileCleanupController @Inject constructor(
     }
 
 
-    private fun deleteAttachments(keys: Set<String>, libraryId: LibraryIdentifier): DeletionType? {
+    private fun deleteAttachments(
+        keys: Set<String>,
+        libraryId: LibraryIdentifier,
+        collectionIdentifier: CollectionIdentifier?
+    ): DeletionType? {
         if (keys.isEmpty()) {
             return null
         }
@@ -167,7 +181,7 @@ class AttachmentFileCleanupController @Inject constructor(
             val toDelete = mutableSetOf<String>()
             val toReport = mutableSetOf<String>()
 
-            dbWrapper.realmDbStorage.perform { coordinator ->
+            dbWrapperMain.realmDbStorage.perform { coordinator ->
                 val items = coordinator.perform(
                     request = ReadItemsWithKeysDbRequest(
                         keys = keys,
@@ -210,7 +224,15 @@ class AttachmentFileCleanupController @Inject constructor(
                 removeFiles(key, libraryId = libraryId)
             }
 
-            return if (toReport.isEmpty()) null else DeletionType.allForItems(toReport, libraryId)
+            return if (toReport.isEmpty()) {
+                null
+            } else {
+                DeletionType.allForItems(
+                    keys = toReport,
+                    libraryId = libraryId,
+                    collectionIdentifier = collectionIdentifier
+                )
+            }
         } catch (error: Exception) {
             Timber.e(error, "AttachmentFileCleanupController: can't remove attachments for item")
             return null
@@ -226,7 +248,7 @@ class AttachmentFileCleanupController @Inject constructor(
 
             var canDelete = false
 
-            dbWrapper.realmDbStorage.perform { coordinator ->
+            dbWrapperMain.realmDbStorage.perform { coordinator ->
                 val item = coordinator.perform(
                     request = ReadItemDbRequest(
                         libraryId = attachment.libraryId,
@@ -263,7 +285,7 @@ class AttachmentFileCleanupController @Inject constructor(
         try {
             var forUpload = listOf<String>()
 
-            dbWrapper.realmDbStorage.perform { coordinator ->
+            dbWrapperMain.realmDbStorage.perform { coordinator ->
                 val items =
                     coordinator.perform(request = ReadItemsForUploadDbRequest(libraryId = libraryId))
                 forUpload = items.map { it.key }
@@ -277,9 +299,14 @@ class AttachmentFileCleanupController @Inject constructor(
                 delete(listOf(libraryId), forUpload = mapOf(libraryId to forUpload))
 
             fileStorage.annotationPreviews(libraryId).deleteRecursively()
+            fileStorage.pageThumbnails(libraryId).deleteRecursively()
             val keys = deletedIndividually[libraryId]
             if (keys != null && !keys.isEmpty()) {
-                return DeletionType.allForItems(keys, libraryId)
+                return DeletionType.allForItems(
+                    keys = keys,
+                    libraryId = libraryId,
+                    collectionIdentifier = null
+                )
             }
             return DeletionType.library(libraryId)
         } catch (error: Exception) {

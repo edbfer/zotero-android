@@ -1,7 +1,6 @@
 package org.zotero.android.screens.collections
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -15,7 +14,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.Icon
 import androidx.compose.material.Text
-import androidx.compose.material.ripple.rememberRipple
+import androidx.compose.material.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -31,6 +30,7 @@ import org.zotero.android.sync.Collection
 import org.zotero.android.sync.CollectionIdentifier
 import org.zotero.android.uicomponents.Drawables
 import org.zotero.android.uicomponents.badge.RoundBadgeIcon
+import org.zotero.android.uicomponents.foundation.debounceCombinedClickable
 import org.zotero.android.uicomponents.icon.IconWithPadding
 import org.zotero.android.uicomponents.misc.NewDivider
 import org.zotero.android.uicomponents.theme.CustomTheme
@@ -46,16 +46,59 @@ internal fun CollectionsTable(
     LazyColumn(
         state = rememberLazyListState(),
     ) {
+        fixedCollectionRow(
+            customType = CollectionIdentifier.CustomType.all,
+            viewState = viewState,
+            layoutType = layoutType,
+            viewModel = viewModel
+        )
         recursiveCollectionItem(
             layoutType = layoutType,
             collectionItems = viewState.collectionItemsToDisplay,
             selectedCollectionId = viewState.selectedCollectionId,
-            isCollapsed = { viewModel.isCollapsed(it) },
+            isCollapsed = { viewState.isCollapsed(it) },
             onItemTapped = { viewModel.onItemTapped(it.collection) },
             onItemLongTapped = { viewModel.onItemLongTapped(it.collection) },
             onItemChevronTapped = { viewModel.onItemChevronTapped(it.collection) },
-            showCollectionItemCounts = viewModel.showCollectionItemCounts()
+            showCollectionItemCounts = viewState.showCollectionItemCounts
         )
+        fixedCollectionRow(
+            customType = CollectionIdentifier.CustomType.unfiled,
+            viewState = viewState,
+            layoutType = layoutType,
+            viewModel = viewModel
+        )
+        fixedCollectionRow(
+            customType = CollectionIdentifier.CustomType.trash,
+            viewState = viewState,
+            layoutType = layoutType,
+            viewModel = viewModel
+        )
+    }
+}
+
+private fun LazyListScope.fixedCollectionRow(
+    customType: CollectionIdentifier.CustomType,
+    viewState: CollectionsViewState,
+    layoutType: CustomLayoutSize.LayoutType,
+    viewModel: CollectionsViewModel
+) {
+    item {
+        val fixedCollection = viewState.fixedCollections[customType]
+        if (fixedCollection != null) {
+            CollectionItem(
+                layoutType = layoutType,
+                levelPadding = levelPaddingConst,
+                selectedCollectionId = viewState.selectedCollectionId,
+                collection = fixedCollection,
+                hasChildren = false,
+                showCollectionItemCounts = viewState.showCollectionItemCounts,
+                isCollapsed = true,
+                onItemTapped = { viewModel.onItemTapped(fixedCollection) },
+                onItemLongTapped = { viewModel.onItemLongTapped(fixedCollection) },
+                onItemChevronTapped = { viewModel.onItemChevronTapped(fixedCollection) }
+            )
+        }
     }
 }
 
@@ -129,9 +172,9 @@ private fun CollectionItem(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = rowModifier
-                .combinedClickable(
+                .debounceCombinedClickable(
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = rememberRipple(),
+                    indication = ripple(),
                     onClick = onItemTapped,
                     onLongClick = onItemLongTapped
                 )

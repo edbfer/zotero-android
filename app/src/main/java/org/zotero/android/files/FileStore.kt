@@ -7,6 +7,8 @@ import com.google.common.base.Charsets
 import com.google.common.io.Files
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.withContext
 import okhttp3.internal.closeQuietly
 import org.apache.commons.codec.binary.Hex
 import org.apache.commons.codec.digest.DigestUtils
@@ -36,6 +38,7 @@ import javax.inject.Singleton
 @Singleton
 class FileStore @Inject constructor (
     private val context: Context,
+    private val dispatcher: CoroutineDispatcher,
     val dataMarshaller: DataMarshaller,
     private val gson: Gson
 ) {
@@ -44,15 +47,16 @@ class FileStore @Inject constructor (
     private lateinit var cachesDirectory: File
     private lateinit var debugDirectory: File
     private lateinit var crashDirectory: File
+    private lateinit var readerDirtyPdfFolder: File
 
 
     companion object {
-        private const val file_store_version = 1
+        private const val file_store_version = 2
 
 
         private const val BUNDLED_SCHEMA_FILE = "schema.json"
 
-        private const val ACTIVE_KEY_FILE = "uploads"
+        private const val ACTIVE_KEY_FILE = "backgroundUploadsFile"
         private const val SESSION_IDS_KEY_FILE = "activeUrlSessionIds"
         private const val EXTENSION_SESSION_IDS_KEY = "shareExtensionObservedUrlSessionIds"
 
@@ -89,6 +93,9 @@ class FileStore @Inject constructor (
 
         crashDirectory = File(filesDir, "crashLogging")
         crashDirectory.mkdirs()
+
+        readerDirtyPdfFolder = File(filesDir, "readerDirtyPdf")
+        readerDirtyPdfFolder.mkdirs()
     }
 
     fun pathForFilename(filename: String): String {
@@ -159,6 +166,14 @@ class FileStore @Inject constructor (
         }
     }
 
+    suspend fun attachmentFileAsync(
+        libraryId: LibraryIdentifier,
+        key: String,
+        filename: String,
+    ) = withContext(dispatcher) {
+        attachmentFile(libraryId = libraryId, key = key, filename = filename)
+    }
+
     fun attachmentFile(
         libraryId: LibraryIdentifier,
         key: String,
@@ -189,11 +204,11 @@ class FileStore @Inject constructor (
     }
 
     fun generateTempFile(): File {
-        return File(cachesDirectory, System.currentTimeMillis().toString())
+        return File(cache(), System.currentTimeMillis().toString())
     }
 
     fun temporaryFile(ext: String): File {
-        return File(cachesDirectory, UUID.randomUUID().toString() + "." + ext)
+        return File(cache(), UUID.randomUUID().toString() + "." + ext)
     }
 
     fun annotationPreviews(pdfKey: String, libraryId: LibraryIdentifier): File {
@@ -210,6 +225,32 @@ class FileStore @Inject constructor (
 
     val annotationPreviews: File get() {
         val folderPath = File(getRootDirectory(), "annotations")
+        folderPath.mkdirs()
+        return folderPath
+    }
+
+    val pageThumbnails: File get() {
+        val folderPath = File(getRootDirectory(), "thumbnails")
+        folderPath.mkdirs()
+        return folderPath
+    }
+
+    fun pageThumbnail(pageIndex: Int, key: String, libraryId: LibraryIdentifier, isDark: Boolean): File {
+        val folderPath = File(getRootDirectory(), "thumbnails/${libraryId.folderName}/$key")
+        folderPath.mkdirs()
+        val name = pageIndex.toString() + (if(isDark) "_dark" else "") + ".png"
+        val result = File(folderPath, name)
+        return result
+    }
+
+    fun pageThumbnails(key: String, libraryId: LibraryIdentifier):File {
+        val folderPath = File(getRootDirectory(), "thumbnails/${libraryId.folderName}/$key")
+        folderPath.mkdirs()
+        return folderPath
+    }
+
+    fun pageThumbnails(libraryId: LibraryIdentifier): File {
+        val folderPath = File(getRootDirectory(), "thumbnails/${libraryId.folderName}")
         folderPath.mkdirs()
         return folderPath
     }
@@ -391,6 +432,16 @@ class FileStore @Inject constructor (
             ?: LibraryIdentifier.custom(RCustomLibraryType.myLibrary)
     }
 
+    suspend fun getSelectedLibraryAsync() = withContext(dispatcher) {
+        getSelectedLibrary()
+    }
+
+    suspend fun setSelectedLibraryAsync(
+        libraryIdentifier: LibraryIdentifier,
+    ) = withContext(dispatcher) {
+        setSelectedLibrary(libraryIdentifier)
+    }
+
     fun setSelectedLibrary(
         libraryIdentifier: LibraryIdentifier,
     ) {
@@ -400,6 +451,16 @@ class FileStore @Inject constructor (
     fun getSelectedCollectionId(): CollectionIdentifier {
         return deserializeFromFile(selectedCollectionId)
             ?: CollectionIdentifier.custom(CollectionIdentifier.CustomType.all)
+    }
+
+    suspend fun getSelectedCollectionIdAsync() = withContext(dispatcher) {
+        getSelectedCollectionId()
+    }
+
+    suspend fun setSelectedCollectionIdAsync(
+        collectionIdentifier: CollectionIdentifier,
+    ) = withContext(dispatcher) {
+        setSelectedCollectionId(collectionIdentifier)
     }
 
     fun setSelectedCollectionId(
@@ -431,7 +492,7 @@ class FileStore @Inject constructor (
     }
 
     fun shareExtensionDownload(key: String, ext: String): File {
-        val folderPath = File(cachesDirectory, "shareext/downloads")
+        val folderPath = File(cache(), "shareext/downloads")
         folderPath.mkdirs()
         return File(folderPath, "item_$key.$ext")
     }
@@ -457,5 +518,27 @@ class FileStore @Inject constructor (
         setSelectedCollectionId(CollectionIdentifier.custom(CollectionIdentifier.CustomType.all))
         setSelectedLibrary(LibraryIdentifier.custom(RCustomLibraryType.myLibrary))
     }
+
+    fun temporaryZipUploadFile(key: String): File {
+        val uploadsDir = File(getRootDirectory(), "uploads")
+        uploadsDir.mkdirs()
+        return File(uploadsDir, "${key}.zip")
+    }
+
+    fun pdfWorkerDirectory(): File {
+        val folderPath = File(getRootDirectory(), "pdf-worker")
+        folderPath.mkdirs()
+        return folderPath
+    }
+
+    fun readerDirtyPdfFolder(): File {
+        readerDirtyPdfFolder.mkdirs()
+        return readerDirtyPdfFolder
+    }
+
+    fun pdfReaderDirtyFile(fileName: String): File {
+        return File(readerDirtyPdfFolder(), fileName)
+    }
+
 
 }

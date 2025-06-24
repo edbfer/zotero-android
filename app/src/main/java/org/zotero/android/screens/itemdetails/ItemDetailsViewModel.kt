@@ -1,22 +1,22 @@
 package org.zotero.android.screens.itemdetails
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
-import android.util.Log
 import android.webkit.MimeTypeMap
-import android.widget.Toast
-import androidx.compose.animation.defaultDecayAnimationSpec
 import androidx.core.net.toFile
 import androidx.core.net.toUri
-import androidx.documentfile.provider.DocumentFile
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.realm.ObjectChangeSet
 import io.realm.RealmObjectChangeListener
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import org.greenrobot.eventbus.EventBus
@@ -32,16 +32,17 @@ import org.zotero.android.architecture.ScreenArguments
 import org.zotero.android.architecture.ViewEffect
 import org.zotero.android.architecture.ViewState
 import org.zotero.android.architecture.ifFailure
+import org.zotero.android.architecture.navigation.ARG_ITEM_DETAILS_SCREEN
 import org.zotero.android.architecture.navigation.NavigationParamsMarshaller
+import org.zotero.android.architecture.require
 import org.zotero.android.attachmentdownloader.AttachmentDownloader
 import org.zotero.android.attachmentdownloader.AttachmentDownloaderEventStream
 import org.zotero.android.database.DbRequest
-import org.zotero.android.database.DbWrapper
+import org.zotero.android.database.DbWrapperMain
 import org.zotero.android.database.objects.Attachment
 import org.zotero.android.database.objects.FieldKeys
 import org.zotero.android.database.objects.ItemTypes
 import org.zotero.android.database.objects.RItem
-import org.zotero.android.database.objects.UpdatableChangeType
 import org.zotero.android.database.requests.CancelParentCreationDbRequest
 import org.zotero.android.database.requests.CreateAttachmentsDbRequest
 import org.zotero.android.database.requests.CreateItemFromDetailDbRequest
@@ -69,7 +70,6 @@ import org.zotero.android.helpers.formatter.iso8601DateFormatV2
 import org.zotero.android.helpers.formatter.sqlFormat
 import org.zotero.android.ktx.index
 import org.zotero.android.pdf.data.PdfReaderArgs
-import org.zotero.android.pdfjs.PdfjsReaderArgs
 import org.zotero.android.screens.addnote.data.AddOrEditNoteArgs
 import org.zotero.android.screens.addnote.data.SaveNoteAction
 import org.zotero.android.screens.creatoredit.data.CreatorEditArgs
@@ -119,7 +119,6 @@ import org.zotero.android.uicomponents.singlepicker.SinglePickerStateCreator
 import timber.log.Timber
 import java.io.File
 import java.net.URLEncoder
-import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.util.Date
 import javax.inject.Inject
@@ -130,7 +129,7 @@ val numberOfRowsInLazyColumnBeforeListOfCreatorsStarts = 1
 class ItemDetailsViewModel @Inject constructor(
     dispatcher: CoroutineDispatcher,
     private val defaults: Defaults,
-    private val dbWrapper: DbWrapper,
+    private val dbWrapperMain: DbWrapperMain,
     private val fileStore: FileStore,
     private val urlDetector: UrlDetector,
     private val schemaController: SchemaController,
@@ -143,7 +142,13 @@ class ItemDetailsViewModel @Inject constructor(
     private val dateParser: DateParser,
     private val context: Context,
     private val navigationParamsMarshaller: NavigationParamsMarshaller,
+    stateHandle: SavedStateHandle,
 ) : BaseViewModel2<ItemDetailsViewState, ItemDetailsViewEffect>(ItemDetailsViewState()) {
+
+    val screenArgs: ItemDetailsArgs by lazy {
+        val argsEncoded = stateHandle.get<String>(ARG_ITEM_DETAILS_SCREEN).require()
+        navigationParamsMarshaller.decodeObjectFromBase64(argsEncoded)
+    }
 
     private var coroutineScope = CoroutineScope(dispatcher)
 
@@ -210,12 +215,13 @@ class ItemDetailsViewModel @Inject constructor(
 
     fun init() = initOnce {
         EventBus.getDefault().register(this)
-        setupFileObservers()
+            initViewState(screenArgs)
 
-        val args = ScreenArguments.itemDetailsArgs
+            setupFileObservers()
+            setupOnFieldValueTextChangeFlow()
+            setupOnAbstractTextChangeFlow()
 
-        initViewState(args)
-        loadInitialData()
+            loadInitialData()
     }
 
     private fun setupFileObservers() {
@@ -236,14 +242,6 @@ class ItemDetailsViewModel @Inject constructor(
                     }
                     is AttachmentDownloader.Update.Kind.failed -> {
                         //TODO implement when unzipping is supported
-                        //But also PDF attachments will fall in here!
-                        val attachmentResult = attachment(key = update.key,  libraryId = update.libraryId)
-                        if (attachmentResult != null)
-                        {
-                            viewModelScope.launch {
-                                showLinkedPdf(attachment = attachmentResult.first, library = attachmentResult.second)
-                            }
-                        }
                     }
                     else -> {}
                 }
@@ -268,6 +266,8 @@ class ItemDetailsViewModel @Inject constructor(
         EventBus.getDefault().unregister(this)
         conflictResolutionUseCase.currentlyDisplayedItemLibraryIdentifier = null
         conflictResolutionUseCase.currentlyDisplayedItemKey = null
+
+        coroutineScope.cancel()
         super.onCleared()
     }
 
@@ -303,7 +303,8 @@ class ItemDetailsViewModel @Inject constructor(
                 type = type,
                 userId = userId,
                 library = library,
-                preScrolledChildKey = preScrolledChildKey
+                preScrolledChildKey = preScrolledChildKey,
+                abstractText = viewState.data.abstract ?: ""
             )
         }
         conflictResolutionUseCase.currentlyDisplayedItemLibraryIdentifier = viewState.library?.identifier
@@ -313,7 +314,7 @@ class ItemDetailsViewModel @Inject constructor(
 
     fun onSaveOrEditClicked() {
         if (viewState.isEditing) {
-            saveChanges()
+            endEditing()
         } else {
             val updatedStateData = viewState.data.deepCopy()
             val updatedData = viewState.data.deepCopy(
@@ -327,6 +328,7 @@ class ItemDetailsViewModel @Inject constructor(
                     snapshot = updatedStateData,
                     data = updatedData,
                     isEditing = true,
+                    abstractText = updatedData.abstract ?: ""
                 )
             }
         }
@@ -356,7 +358,9 @@ class ItemDetailsViewModel @Inject constructor(
                         fileStorage = this.fileStore,
                         urlDetector = this.urlDetector,
                         dateParser = this.dateParser,
-                        doiDetector = { doiValue -> FieldKeys.Item.isDoi(doiValue) })
+                        doiDetector = { doiValue -> FieldKeys.Item.isDoi(doiValue) },
+                        defaults = this.defaults
+                    )
                 }
                 is DetailType.preview -> {
                     reloadData(isEditing = viewState.isEditing)
@@ -366,23 +370,25 @@ class ItemDetailsViewModel @Inject constructor(
                     val itemKey = type.itemKey
                     val _collectionKey = type.collectionKey
                     collectionKey = _collectionKey
-                    val item = dbWrapper.realmDbStorage.perform(
+                    val item = dbWrapperMain.realmDbStorage.perform(
                         request = ReadItemDbRequest(
                             libraryId = viewState.library!!.identifier,
                             key = itemKey
                         )
                     )
-                    data = ItemDetailDataCreator.createData(ItemDetailDataCreator.Kind.existing(
-                        item = item,
-                        ignoreChildren = true
-                    ),
+                    data = ItemDetailDataCreator.createData(
+                        ItemDetailDataCreator.Kind.existing(
+                            item = item,
+                            ignoreChildren = true
+                        ),
                         schemaController = this.schemaController,
                         fileStorage = this.fileStore,
                         urlDetector = this.urlDetector,
                         dateParser = this.dateParser,
-                        doiDetector = { doiValue -> FieldKeys.Item.isDoi(doiValue) })
+                        doiDetector = { doiValue -> FieldKeys.Item.isDoi(doiValue) },
+                        defaults = this.defaults
+                    )
                 }
-                else -> {}
             }
         } catch (e: Exception) {
             Timber.e(e, "can't load initial data ")
@@ -391,7 +397,6 @@ class ItemDetailsViewModel @Inject constructor(
             }
             return
         }
-        data!!
         val request = CreateItemFromDetailDbRequest(
             key = key,
             libraryId = libraryId,
@@ -405,7 +410,7 @@ class ItemDetailsViewModel @Inject constructor(
             fileStore = fileStore
         )
         viewModelScope.launch {
-            val result = perform(dbWrapper, request = request, invalidateRealm = true)
+            val result = perform(dbWrapperMain, request = request, invalidateRealm = true)
             if (result is Result.Failure) {
                 Timber.e(result.exception, "ItemDetailActionHandler: can't create initial item")
                 updateState {
@@ -421,7 +426,7 @@ class ItemDetailsViewModel @Inject constructor(
     private fun reloadData(isEditing: Boolean) = viewModelScope.launch {
         try {
             currentItem?.removeAllChangeListeners()
-            val item = dbWrapper.realmDbStorage.perform(
+            val item = dbWrapperMain.realmDbStorage.perform(
                 request = ReadItemDbRequest(
                     libraryId = viewState.library!!.identifier,
                     key = viewState.key
@@ -447,7 +452,9 @@ class ItemDetailsViewModel @Inject constructor(
                 dateParser = this@ItemDetailsViewModel.dateParser,
                 fileStorage = this@ItemDetailsViewModel.fileStore,
                 urlDetector = this@ItemDetailsViewModel.urlDetector,
-                doiDetector = { doiValue -> FieldKeys.Item.isDoi(doiValue) })
+                doiDetector = { doiValue -> FieldKeys.Item.isDoi(doiValue) },
+                defaults = this@ItemDetailsViewModel.defaults
+            )
 
             if (!isEditing) {
                 data.fieldIds =
@@ -477,7 +484,10 @@ class ItemDetailsViewModel @Inject constructor(
         isEditing: Boolean,
     ) {
         updateState {
-            copy(data = data)
+            copy(
+                data = data,
+                abstractText = data.abstract ?: ""
+            )
         }
         if (viewState.snapshot != null || isEditing) {
             val updatedSnapshot = data.deepCopy(
@@ -514,10 +524,17 @@ class ItemDetailsViewModel @Inject constructor(
         }
     }
 
+    private var ignoreScreenRefreshOnNextDbUpdate: Boolean = false
+
     private fun shouldReloadData(item: RItem, changes: Array<String>): Boolean {
         if (changes.contains("version")) {
-            //Use old value?
-            if (changes.contains("changeType") && item.changeType != UpdatableChangeType.user.name) {
+            if (changes.contains("changeType")) {
+                //Unfortunately there is no way on Android's RealmDB to get the previous value of RealmObject's 'changeType' field in it's ChangeListener.
+                // That's why we have to adjust shouldReloadData logic to ignore user's input during DB Refresh with this flag.
+                if (ignoreScreenRefreshOnNextDbUpdate) {
+                    ignoreScreenRefreshOnNextDbUpdate = false
+                    return false
+                }
                 return true
             }
             return false
@@ -621,18 +638,76 @@ class ItemDetailsViewModel @Inject constructor(
                 orderId = orderId
             )
 
-            val result = perform(dbWrapper = dbWrapper, request = request)
+            val result = perform(dbWrapper = dbWrapperMain, request = request)
             if (result is Result.Failure) {
                 Timber.e(result.exception, "ItemDetailActionHandler: can't create creator")
             }
         }
     }
 
-    fun setFieldValue(id: String, value: String) {
+    private var onAbstractTextChangeFlow = MutableStateFlow<String?>(null)
+
+    private fun setupOnAbstractTextChangeFlow() {
+        onAbstractTextChangeFlow
+            .debounce(500)
+            .map { data ->
+                if (data != null) {
+                    onAbstractEdit(data)
+                }
+            }
+            .launchIn(viewModelScope)
+    }
+
+    fun onAbstractTextChange(newAbstract: String) {
+        updateState {
+            copy(
+                abstractText = newAbstract
+            )
+        }
+        onAbstractTextChangeFlow.tryEmit(newAbstract)
+    }
+
+
+    private var onFieldValueTextChangeFlow = MutableStateFlow<Pair<String, String>?>(null)
+
+    private fun setupOnFieldValueTextChangeFlow() {
+        onFieldValueTextChangeFlow
+            .debounce(500)
+            .map { data ->
+                if (data != null) {
+                    setFieldValue(data.first, data.second)
+                }
+            }
+            .launchIn(viewModelScope)
+    }
+
+    fun onFieldFocusFieldChange(fieldId: String) {
+        val changeFlowValue = onFieldValueTextChangeFlow.value
+        if (changeFlowValue != null) {
+            setFieldValue(changeFlowValue.first, changeFlowValue.second)
+        }
+        val field = viewState.data.fields[fieldId] ?: return
+        updateState {
+            copy(
+                fieldFocusKey = fieldId,
+                fieldFocusText = field.valueOrAdditionalInfo
+            )
+        }
+    }
+
+    fun onFieldValueTextChange(id: String, value: String) {
+        updateState {
+            copy(fieldFocusText = value)
+        }
+        onFieldValueTextChangeFlow.tryEmit(id to value)
+    }
+
+    private fun setFieldValue(id: String, value: String) {
         val field = viewState.data.fields[id]
         if (field == null) {
             return
         }
+        ignoreScreenRefreshOnNextDbUpdate = true
 
         field.value = value
         field.isTappable = ItemDetailDataCreator.isTappable(
@@ -673,7 +748,7 @@ class ItemDetailsViewModel @Inject constructor(
         )
 
         viewModelScope.launch {
-            val result = perform(dbWrapper = dbWrapper, request = request)
+            val result = perform(dbWrapper = dbWrapperMain, request = request)
             if (result is Result.Failure) {
                 Timber.e(result.exception, "ItemDetailActionHandler: can't store field")
             }
@@ -705,14 +780,15 @@ class ItemDetailsViewModel @Inject constructor(
             dateParser = this.dateParser
         )
         viewModelScope.launch {
-            val result = perform(dbWrapper = dbWrapper, request = request)
+            val result = perform(dbWrapper = dbWrapperMain, request = request)
             if (result is Result.Failure) {
                 Timber.e(result.exception, "ItemDetailActionHandler: can't store title")
             }
         }
     }
 
-    fun onAbstractEdit(newAbstract: String) {
+    private fun onAbstractEdit(newAbstract: String) {
+        ignoreScreenRefreshOnNextDbUpdate = true
         val updatedData = viewState.data.deepCopy(abstract = newAbstract)
         updateState {
             copy(data = updatedData)
@@ -731,7 +807,7 @@ class ItemDetailsViewModel @Inject constructor(
         )
 
         viewModelScope.launch {
-            val result = perform(dbWrapper = dbWrapper, request = request)
+            val result = perform(dbWrapper = dbWrapperMain, request = request)
             if (result is Result.Failure) {
                 Timber.e(result.exception, "ItemDetailActionHandler: can't store abstract")
             }
@@ -772,13 +848,14 @@ class ItemDetailsViewModel @Inject constructor(
         return field
     }
 
-    fun saveChanges() {
+    private fun endEditing() {
+        ignoreScreenRefreshOnNextDbUpdate = false
         if (viewState.snapshot == viewState.data) {
             return
         }
         try {
             coroutineScope.launch {
-                endEditing()
+                endEditingAsync()
             }
         } catch (error: Exception) {
             Timber.e(error, "ItemDetailStore: can't store changes")
@@ -788,9 +865,7 @@ class ItemDetailsViewModel @Inject constructor(
         }
     }
 
-    private fun endEditing() {
-//        updateDateFieldIfNeeded()
-//        updateAccessedFieldIfNeeded()
+    private fun endEditingAsync() {
         viewModelScope.launch {
             val updatedFields: MutableMap<KeyBaseKeyPair, String> = mutableMapOf()
             val updatedFieldsMap = viewState.data.fields.toMutableMap()
@@ -832,7 +907,7 @@ class ItemDetailsViewModel @Inject constructor(
                 )
             }
             perform(
-                dbWrapper = dbWrapper,
+                dbWrapper = dbWrapperMain,
                 writeRequests = requests
             ).ifFailure {
                 Timber.e(it)
@@ -852,7 +927,8 @@ class ItemDetailsViewModel @Inject constructor(
                     snapshot = null,
                     isEditing = false,
                     type = DetailType.preview(viewState.key),
-                    data = updatedData
+                    data = updatedData,
+                    abstractText = updatedData.abstract ?: ""
                 )
             }
         }
@@ -948,11 +1024,10 @@ class ItemDetailsViewModel @Inject constructor(
 
     private fun cancelChanges() {
         viewModelScope.launch {
-            val type = viewState.type!!
-            when (type) {
+            when (val type = viewState.type) {
                 is DetailType.duplication -> {
                     perform(
-                        dbWrapper = dbWrapper,
+                        dbWrapper = dbWrapperMain,
                         request = DeleteObjectsDbRequest(
                             clazz = RItem::class,
                             keys = listOf(viewState.key),
@@ -986,7 +1061,7 @@ class ItemDetailsViewModel @Inject constructor(
                         )
                     }
                     perform(
-                        dbWrapper = dbWrapper,
+                        dbWrapper = dbWrapperMain,
                         writeRequests = actions
                     ).ifFailure {
                         Timber.e(it, "ItemDetailActionHandler: can't remove created and cancelled item")
@@ -1031,7 +1106,7 @@ class ItemDetailsViewModel @Inject constructor(
                 creatorId = creatorId
             )
 
-            val result = perform(dbWrapper = dbWrapper, request = request)
+            val result = perform(dbWrapper = dbWrapperMain, request = request)
             if (result is Result.Failure) {
                 Timber.e("ItemDetailActionHandler: can't delete creator")
             }
@@ -1044,16 +1119,18 @@ class ItemDetailsViewModel @Inject constructor(
         val title =
             AddOrEditNoteArgs.TitleData(type = viewState.data.type, title = viewState.data.title)
 
-        ScreenArguments.addOrEditNoteArgs = AddOrEditNoteArgs(
-            text = note?.text ?: "",
-            tags = note?.tags ?: listOf(),
+        val args = AddOrEditNoteArgs(
             title = title,
             key = key,
             libraryId = library.identifier,
             readOnly = !library.metadataEditable,
             isFromDashboard = false
         )
-        triggerEffect(ShowAddOrEditNoteEffect)
+        val encodedArgs = navigationParamsMarshaller.encodeObjectToBase64(
+            data = args,
+            charset = StandardCharsets.UTF_8
+        )
+        triggerEffect(ShowAddOrEditNoteEffect(encodedArgs))
     }
 
     private suspend fun saveNote(text: String, tags: List<Tag>, key: String) {
@@ -1103,7 +1180,7 @@ class ItemDetailsViewModel @Inject constructor(
 
         if (oldNote != null) {
             val request = EditNoteDbRequest (note = note, libraryId = viewState.library!!.identifier)
-            perform(dbWrapper = dbWrapper, request = request).ifFailure {
+            perform(dbWrapper = dbWrapperMain, request = request).ifFailure {
                 finishSave(it)
                 return
             }
@@ -1119,7 +1196,7 @@ class ItemDetailsViewModel @Inject constructor(
             parentKey = viewState.key
         )
         perform(
-            dbWrapper = dbWrapper,
+            dbWrapper = dbWrapperMain,
             request = request,
             invalidateRealm = true
         ).ifFailure { error ->
@@ -1428,7 +1505,7 @@ class ItemDetailsViewModel @Inject constructor(
             libraryId = viewState.library!!.identifier,
             tagName = tag.name
         )
-        perform(dbWrapper = dbWrapper, request = request).ifFailure { error ->
+        perform(dbWrapper = dbWrapperMain, request = request).ifFailure { error ->
             Timber.e(error, "ItemDetailActionHandler: can't delete tag ${tag.name}")
             updateState {
                 copy(
@@ -1522,7 +1599,7 @@ class ItemDetailsViewModel @Inject constructor(
             libraryId = viewState.library!!.identifier,
             trashed = true
         )
-        perform(dbWrapper = dbWrapper, request = request).ifFailure { error ->
+        perform(dbWrapper = dbWrapperMain, request = request).ifFailure { error ->
             Timber.e(error, "ItemDetailActionHandler: can't trash item $key")
             updateState {
                 copy(
@@ -1560,56 +1637,6 @@ class ItemDetailsViewModel @Inject constructor(
         return attachment to library
     }
 
-    private suspend fun showLinkedPdf(attachment: Attachment, library: Library)
-    {
-        val attachmentType = attachment.type
-        when (attachmentType)
-        {
-            is Attachment.Kind.file ->
-            {
-                val filename = defaults.getRootLinkedFilesPath().toString() + "/" + attachment.title
-                //docfile stuff
-                val docFiles = DocumentFile.fromTreeUri(context, defaults.getRootLinkedFilesPath())
-                if (docFiles == null)
-                {
-                    //Something has gone wrong
-                    val toast = Toast.makeText(context, "Error opening Linked Files Root directory. Please make sure it is set correctly.", Toast.LENGTH_LONG)
-                    toast.show()
-                    return
-                }
-
-                val file = docFiles.findFile(attachment.title)
-                var fail : Boolean = false
-
-                if (file == null) {
-                    fail = true
-                }
-                else if(!file.canRead())
-                {
-                    fail = true
-                }
-
-                if(fail) {     //Something has gone wrong
-                    val toast =
-                        Toast.makeText(context, "Error opening file " + attachment.title, Toast.LENGTH_LONG)
-                    toast.show()
-                    return
-                }
-
-                Log.w("Testtest", file!!.canRead().toString())
-
-                if(!defaults.getUsePdfjsReader())
-                    showPdffromuri(uri = file.uri, attachment = attachment)
-                else
-                    showPdfjsfromuri(uri = file.uri, attachment = attachment)
-            }
-            else ->
-            {
-                return
-            }
-        }
-    }
-
     private suspend fun show(attachment: Attachment, library: Library) {
         val attachmentType = attachment.type
         when (attachmentType) {
@@ -1638,6 +1665,8 @@ class ItemDetailsViewModel @Inject constructor(
                             showImageFile(file)
                         } else if (contentType.contains("video")) {
                             showVideoFile(file)
+                        } else {
+                            openFile(file, contentType)
                         }
                     }
                 }
@@ -1666,31 +1695,6 @@ class ItemDetailsViewModel @Inject constructor(
         )
         val params = navigationParamsMarshaller.encodeObjectToBase64(pdfReaderArgs)
         triggerEffect(NavigateToPdfScreen(params))
-    }
-
-    private fun showPdffromuri(uri: Uri, attachment: Attachment) {
-        //val uri = Uri.fromFile(file)
-        val pdfReaderArgs = PdfReaderArgs(
-            key = attachment.key,
-            library = viewState.library!!,
-            page = null,
-            preselectedAnnotationKey = null,
-            uri = uri,
-        )
-        val params = navigationParamsMarshaller.encodeObjectToBase64(pdfReaderArgs)
-        triggerEffect(NavigateToPdfScreen(params))
-    }
-
-    private fun showPdfjsfromuri(uri: Uri, attachment: Attachment)
-    {
-        val pdfjsReaderArgs = PdfjsReaderArgs(
-            key = attachment.key,
-            library = viewState.library!!,
-            preselectedAnnotationKey = null,
-            path = uri.toString()
-        )
-        val params = navigationParamsMarshaller.encodeObjectToBase64(pdfjsReaderArgs)
-        triggerEffect(ItemDetailsViewEffect.NavigateToPdfjsScreen(params))
     }
 
     private fun openFile(file: File, mime: String) {
@@ -1800,7 +1804,7 @@ class ItemDetailsViewModel @Inject constructor(
         }
 
         val request = EditTagsForItemDbRequest(key = viewState.key, libraryId = viewState.library!!.identifier, tags = tags)
-        val result = perform(dbWrapper = dbWrapper, request = request)
+        val result = perform(dbWrapper = dbWrapperMain, request = request)
 
         updateState {
             copy(backgroundProcessedItems = backgroundProcessedItems - tags.map { it.name })
@@ -1864,7 +1868,7 @@ class ItemDetailsViewModel @Inject constructor(
 
             viewModelScope.launch {
                 val result =
-                    perform(dbWrapper, invalidateRealm = true, request = request)
+                    perform(dbWrapperMain, invalidateRealm = true, request = request)
                 for (attachment in attachments) {
                     updateState {
                         copy(backgroundProcessedItems = backgroundProcessedItems - attachment.key)
@@ -1969,7 +1973,7 @@ class ItemDetailsViewModel @Inject constructor(
         }
 
         val result = perform(
-            dbWrapper,
+            dbWrapperMain,
             request = RemoveItemFromParentDbRequest(
                 key = attachment.key,
                 libraryId = attachment.libraryId
@@ -2036,7 +2040,7 @@ class ItemDetailsViewModel @Inject constructor(
                 ids = viewState.data.creatorIds
             )
 
-            val result = perform(dbWrapper = dbWrapper, request = request)
+            val result = perform(dbWrapper = dbWrapperMain, request = request)
             if (result is Result.Failure) {
                 Timber.e(result.exception, "ItemDetailActionHandler: can't reorder creators")
             }
@@ -2057,7 +2061,7 @@ class ItemDetailsViewModel @Inject constructor(
         )
 
         viewModelScope.launch {
-            val result = perform(dbWrapper = dbWrapper, request = request)
+            val result = perform(dbWrapper = dbWrapperMain, request = request)
             if (result is Result.Failure) {
                 Timber.e(result.exception, "ItemDetailActionHandler: can't change type")
             }
@@ -2069,7 +2073,7 @@ data class ItemDetailsViewState(
     val key: String = "",
     val library: Library? = null,
     val userId: Long = 0,
-    val type: DetailType? = null,
+    val type: DetailType = DetailType.preview(""),
     val preScrolledChildKey: String? = null,
     val isEditing: Boolean = false,
     var error: ItemDetailError? = null,
@@ -2084,6 +2088,9 @@ data class ItemDetailsViewState(
     var isLoadingData: Boolean = false,
     var backgroundProcessedItems: Set<String> = emptySet(),
     val longPressOptionsHolder: LongPressOptionsHolder? = null,
+    val fieldFocusKey: String? = null,
+    val fieldFocusText: String = "",
+    val abstractText: String = "",
 ) : ViewState
 
 sealed class ItemDetailsViewEffect : ViewEffect {
@@ -2092,12 +2099,11 @@ sealed class ItemDetailsViewEffect : ViewEffect {
     object ShowItemTypePickerEffect : ItemDetailsViewEffect()
     object ScreenRefresh : ItemDetailsViewEffect()
     object OnBack : ItemDetailsViewEffect()
-    object ShowAddOrEditNoteEffect : ItemDetailsViewEffect()
+    data class ShowAddOrEditNoteEffect(val screenArgs: String) : ItemDetailsViewEffect()
     object ShowVideoPlayer : ItemDetailsViewEffect()
     object ShowImageViewer : ItemDetailsViewEffect()
     data class OpenFile(val file: File, val mimeType: String) : ItemDetailsViewEffect()
     data class NavigateToPdfScreen(val params: String) : ItemDetailsViewEffect()
-    data class NavigateToPdfjsScreen(val params: String) : ItemDetailsViewEffect()
     data class OpenWebpage(val uri: Uri) : ItemDetailsViewEffect()
     data class ShowZoteroWebView(val url: String) : ItemDetailsViewEffect()
     object AddAttachment : ItemDetailsViewEffect()

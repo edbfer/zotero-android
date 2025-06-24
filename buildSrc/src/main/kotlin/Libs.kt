@@ -2,7 +2,7 @@ object Libs {
 
     const val androidJUnitRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-    const val pspdfkit = "com.pspdfkit:pspdfkit:8.10.0"
+    const val pspdfkit = "com.pspdfkit:pspdfkit:2024.4.0"
     const val googleServices = "com.google.gms:google-services:4.3.13"
     const val realmGradlePlugin = "io.realm:realm-gradle-plugin:10.15.1"
     const val materialDesign = "com.google.android.material:material:1.10.0"
@@ -20,9 +20,9 @@ object Libs {
     }
 
     object Compose {
-        const val compileVersion = "1.5.4"
+        const val compileVersion = "1.5.14"
 
-        private const val version = "1.6.0-rc01"
+        private const val version = "1.7.1"
         const val activity = "androidx.activity:activity-compose:1.8.1"
         const val constraintLayout = "androidx.constraintlayout:constraintlayout-compose:1.0.1"
         const val foundation = "androidx.compose.foundation:foundation:$version"
@@ -60,7 +60,6 @@ object Libs {
     object Hilt {
         private const val version = "1.1.0"
 
-        const val worker = "androidx.hilt:hilt-work:$version"
         const val compiler = "androidx.hilt:hilt-compiler:$version"
         const val navigationCompose = "androidx.hilt:hilt-navigation-compose:$version"
     }
@@ -76,6 +75,7 @@ object Libs {
         const val converterGson = "com.squareup.retrofit2:converter-gson:$version"
         const val converterScalars = "com.squareup.retrofit2:converter-scalars:$version"
 
+        const val digest = "io.github.rburgst:okhttp-digest:3.1.0"
         const val kotlinSerialization =
             "com.jakewharton.retrofit:retrofit2-kotlinx-serialization-converter:0.8.0"
     }
@@ -102,7 +102,7 @@ object Libs {
     }
 
     object Kotlin {
-        private const val version = "1.9.20"
+        private const val version = "1.9.24"
         const val jsonSerialization = "org.jetbrains.kotlinx:kotlinx-serialization-json:1.5.1"
         const val immutableCollections = "org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.5"
         const val serialization = "org.jetbrains.kotlin:kotlin-serialization:$version"
@@ -135,7 +135,6 @@ object Libs {
             const val lifecycleRuntime = "androidx.lifecycle:lifecycle-runtime-ktx:$version"
         }
 
-        const val swipeRefreshLayout = "androidx.swiperefreshlayout:swiperefreshlayout:1.1.0"
         const val vectorDrawable = "androidx.vectordrawable:vectordrawable:1.1.0"
         const val preferencesKtx = "androidx.preference:preference-ktx:1.2.1"
 
@@ -148,14 +147,11 @@ object Libs {
             const val coreTesting = "androidx.arch.core:core-testing:2.1.0"
         }
 
-        object Work {
-            private const val version = "2.9.0"
-            const val runtime = "androidx.work:work-runtime-ktx:$version"
-        }
     }
     object Commons {
         const val io = "commons-io:commons-io:2.4"
         const val codec = "commons-codec:commons-codec:1.13"
         const val validator = "commons-validator:commons-validator:1.7"
+        const val text = "org.apache.commons:commons-text:1.13.1"
     }
 }

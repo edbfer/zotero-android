@@ -29,7 +29,7 @@ import org.zotero.android.architecture.coroutines.Dispatchers
 import org.zotero.android.architecture.ifFailure
 import org.zotero.android.architecture.navigation.NavigationParamsMarshaller
 import org.zotero.android.database.DbError
-import org.zotero.android.database.DbWrapper
+import org.zotero.android.database.DbWrapperMain
 import org.zotero.android.database.objects.Attachment
 import org.zotero.android.database.objects.ItemTypes
 import org.zotero.android.database.objects.RItem
@@ -48,6 +48,7 @@ import org.zotero.android.helpers.GetUriDetailsUseCase
 import org.zotero.android.helpers.MediaSelectionResult
 import org.zotero.android.helpers.SelectMediaUseCase
 import org.zotero.android.pdf.data.PdfReaderArgs
+import org.zotero.android.screens.addbyidentifier.data.AddByIdentifierPickerArgs
 import org.zotero.android.screens.addnote.data.AddOrEditNoteArgs
 import org.zotero.android.screens.addnote.data.SaveNoteAction
 import org.zotero.android.screens.allitems.AllItemsViewEffect.ShowAddByIdentifierEffect
@@ -67,10 +68,12 @@ import org.zotero.android.screens.dashboard.data.ShowDashboardLongPressBottomShe
 import org.zotero.android.screens.filter.data.FilterArgs
 import org.zotero.android.screens.filter.data.FilterReloadEvent
 import org.zotero.android.screens.filter.data.FilterResult
+import org.zotero.android.screens.filter.data.UpdateFiltersEvent
 import org.zotero.android.screens.itemdetails.data.DetailType
 import org.zotero.android.screens.itemdetails.data.ItemDetailsArgs
 import org.zotero.android.screens.mediaviewer.image.ImageViewerArgs
 import org.zotero.android.screens.mediaviewer.video.VideoPlayerArgs
+import org.zotero.android.screens.retrievemetadata.data.RetrieveMetadataArgs
 import org.zotero.android.screens.sortpicker.data.SortPickerArgs
 import org.zotero.android.sync.Collection
 import org.zotero.android.sync.CollectionIdentifier
@@ -83,7 +86,6 @@ import org.zotero.android.sync.SchemaController
 import org.zotero.android.sync.SyncKind
 import org.zotero.android.sync.SyncScheduler
 import org.zotero.android.sync.Tag
-import org.zotero.android.uicomponents.addbyidentifier.data.AddByIdentifierPickerArgs
 import org.zotero.android.uicomponents.bottomsheet.LongPressOptionItem
 import org.zotero.android.uicomponents.singlepicker.SinglePickerArgs
 import org.zotero.android.uicomponents.singlepicker.SinglePickerResult
@@ -97,7 +99,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 internal class AllItemsViewModel @Inject constructor(
-    private val dbWrapper: DbWrapper,
+    private val dbWrapperMain: DbWrapperMain,
     private val fileStore: FileStore,
     private val selectMedia: SelectMediaUseCase,
     private val getUriDetailsUseCase: GetUriDetailsUseCase,
@@ -177,38 +179,38 @@ internal class AllItemsViewModel @Inject constructor(
     }
 
     private fun showItemDetail(type: DetailType, library: Library) {
-        ScreenArguments.itemDetailsArgs = ItemDetailsArgs(type, library = library, childKey = null)
-        triggerEffect(AllItemsViewEffect.ShowItemDetailEffect)
+        val args = ItemDetailsArgs(type, library = library, childKey = null)
+        val encodedArgs = navigationParamsMarshaller.encodeObjectToBase64(args)
+        triggerEffect(AllItemsViewEffect.ShowItemDetailEffect(encodedArgs))
     }
 
     fun init(isTablet: Boolean) = initOnce {
-        this.isTablet = isTablet
-        EventBus.getDefault().register(this)
-        val args = ScreenArguments.allItemsArgs
-        this.collection = args.collection
-        this.library = args.library
+        viewModelScope.launch {
+            this@AllItemsViewModel.isTablet = isTablet
+            EventBus.getDefault().register(this@AllItemsViewModel)
+            val args = ScreenArguments.allItemsArgs
+            this@AllItemsViewModel.collection = args.collection
+            this@AllItemsViewModel.library = args.library
 
-        val searchTerm = args.searchTerm
+            val searchTerm = args.searchTerm
 
-        updateState {
-            copy(
-                searchTerm = searchTerm,
-                error = args.error,
-                isCollectionTrash = this@AllItemsViewModel.collection.identifier.isTrash,
-                isCollectionACollection = this@AllItemsViewModel.collection.identifier.isCollection,
-                collectionName = this@AllItemsViewModel.collection.name
+            updateState {
+                copy(
+                    searchTerm = searchTerm,
+                    error = args.error,
+                    isCollectionTrash = this@AllItemsViewModel.collection.identifier.isTrash,
+                    isCollectionACollection = this@AllItemsViewModel.collection.identifier.isCollection,
+                    collectionName = this@AllItemsViewModel.collection.name
+                )
+            }
+
+            allItemsProcessor.init(
+                allItemsProcessorInterface = this@AllItemsViewModel,
+                searchTerm = searchTerm
             )
         }
 
-        allItemsProcessor.init(
-            viewModelScope = viewModelScope,
-            allItemsProcessorInterface = this,
-            searchTerm = searchTerm
-        )
 
-        if (isTablet) {
-            initShowFilterArgs()
-        }
     }
 
     override fun show(attachment: Attachment, library: Library) {
@@ -240,6 +242,8 @@ internal class AllItemsViewModel @Inject constructor(
                                 showImageFile(file)
                             } else if (contentType.contains("video")) {
                                 showVideoFile(file)
+                            } else {
+                                openFile(file, contentType)
                             }
                         }
                     }
@@ -339,13 +343,17 @@ internal class AllItemsViewModel @Inject constructor(
         updatedDownloadingAccessories: SnapshotStateMap<String, ItemCellModel.Accessory?>?
     ) {
         viewModelScope.launch {
+            val newItemCellModels = updatedItemCellModels ?: viewState.itemCellModels
+            val maybeFirstItemAfterUpdate = newItemCellModels.firstOrNull()
+            val wasTheFirstItemRecentlyAdded = maybeFirstItemAfterUpdate != null && !viewState.itemCellModels.any { it.key ==  maybeFirstItemAfterUpdate.key}
             updateState {
                 copy(
-                    itemCellModels = updatedItemCellModels ?: viewState.itemCellModels,
+                    itemCellModels = newItemCellModels,
                     accessoryBeingDownloaded = updatedDownloadingAccessories
                         ?: viewState.accessoryBeingDownloaded
                 )
             }
+            triggerEffect(AllItemsViewEffect.MaybeScrollToTop(shouldScrollToTop = wasTheFirstItemRecentlyAdded))
         }
 
     }
@@ -387,10 +395,13 @@ internal class AllItemsViewModel @Inject constructor(
             selectionResult as MediaSelectionResult.AttachMediaSuccess
 
             val original = selectionResult.file.file
-            val filename = original.nameWithoutExtension + "." + original.extension
+            val filename = original.name
+            //I was able to reproduce crash with unrecognizable contentType only when file's extension was empty. If so we now treat such file as binary.
             val contentType =
-                MimeTypeMap.getSingleton().getMimeTypeFromExtension(original.extension)!!
-            val file = fileStore.attachmentFile(libraryId = libraryId, key = key, filename = filename)
+                MimeTypeMap.getSingleton().getMimeTypeFromExtension(original.extension)
+                    ?: "application/octet-stream"
+            val file =
+                fileStore.attachmentFileAsync(libraryId = libraryId, key = key, filename = filename)
             if (!original.renameTo(file)) {
                 Timber.e("can't move file")
                 continue
@@ -428,7 +439,7 @@ internal class AllItemsViewModel @Inject constructor(
         val type = schemaController.localizedItemType(ItemTypes.attachment) ?: ""
         val request = CreateAttachmentsDbRequest(attachments = attachments, parentKey = null, localizedType = type, collections = collections, fileStore = fileStore)
 
-        val result = perform(dbWrapper, invalidateRealm = true, request = request).ifFailure {
+        val result = perform(dbWrapperMain, invalidateRealm = true, request = request).ifFailure {
             Timber.e(it,"ItemsActionHandler: can't add attachment")
             updateState {
                 copy(error = ItemsError.attachmentAdding(ItemsError.AttachmentLoading.couldNotSave))
@@ -464,16 +475,18 @@ internal class AllItemsViewModel @Inject constructor(
     }
 
     private fun showNoteCreation(title: AddOrEditNoteArgs.TitleData?, libraryId: LibraryIdentifier) {
-        ScreenArguments.addOrEditNoteArgs = AddOrEditNoteArgs(
-            text = "",
-            tags = listOf(),
+        val args = AddOrEditNoteArgs(
             title = title,
             key = KeyGenerator.newKey(),
             libraryId = libraryId,
             readOnly = false,
             isFromDashboard = true,
         )
-        triggerEffect(AllItemsViewEffect.ShowAddOrEditNoteEffect)
+        val encodedArgs = navigationParamsMarshaller.encodeObjectToBase64(
+            data = args,
+            charset = StandardCharsets.UTF_8
+        )
+        triggerEffect(AllItemsViewEffect.ShowAddOrEditNoteEffect(encodedArgs))
     }
 
     private fun showItemDetail(item: RItem) {
@@ -483,26 +496,29 @@ internal class AllItemsViewModel @Inject constructor(
                 if (note == null) {
                     return
                 }
-                val tags = item.tags!!.map({ Tag(tag = it) })
                 val library = this.library
-                ScreenArguments.addOrEditNoteArgs = AddOrEditNoteArgs(
-                    text = note.text,
-                    tags = tags,
+                val args = AddOrEditNoteArgs(
                     title = null,
                     libraryId = library.identifier,
                     readOnly = !library.metadataEditable,
                     key = note.key,
                     isFromDashboard = true
                 )
-                triggerEffect(AllItemsViewEffect.ShowAddOrEditNoteEffect)
+                val encodedArgs = navigationParamsMarshaller.encodeObjectToBase64(
+                    data = args,
+                    charset = StandardCharsets.UTF_8
+                )
+                triggerEffect(AllItemsViewEffect.ShowAddOrEditNoteEffect(encodedArgs))
             }
+
             else -> {
-                ScreenArguments.itemDetailsArgs = ItemDetailsArgs(
+                val args = ItemDetailsArgs(
                     DetailType.preview(key = item.key),
                     library = this.library,
                     childKey = null
                 )
-                triggerEffect(AllItemsViewEffect.ShowItemDetailEffect)
+                val encodedArgs = navigationParamsMarshaller.encodeObjectToBase64(args)
+                triggerEffect(AllItemsViewEffect.ShowItemDetailEffect(encodedArgs))
             }
         }
     }
@@ -521,7 +537,7 @@ internal class AllItemsViewModel @Inject constructor(
         }
 
         try {
-            dbWrapper.realmDbStorage.perform(
+            dbWrapperMain.realmDbStorage.perform(
                 EditNoteDbRequest(
                     note = note,
                     libraryId = libraryId
@@ -538,7 +554,7 @@ internal class AllItemsViewModel @Inject constructor(
                     collectionKey = collectionKey,
                     parentKey = null
                 )
-                dbWrapper.realmDbStorage.perform(request = request, invalidateRealm = true)
+                dbWrapperMain.realmDbStorage.perform(request = request, invalidateRealm = true)
             } else {
                 Timber.e(e)
             }
@@ -568,7 +584,7 @@ internal class AllItemsViewModel @Inject constructor(
 
         val accessory = allItemsProcessor.getItemAccessoryByKey(item.key)
         if (accessory == null) {
-            showMetadata(allItemsProcessor.getResultByKey(item.key))
+            showMetadata(allItemsProcessor.getResultByKey(item.key)!!)
             return
         }
 
@@ -585,7 +601,9 @@ internal class AllItemsViewModel @Inject constructor(
     }
 
     fun onAccessoryTapped(key:String) {
-        showMetadata(allItemsProcessor.getResultByKey(key))
+        allItemsProcessor.getResultByKey(key)?.let {
+            showMetadata(it)
+        }
     }
 
     private fun showDoi(doi: String) {
@@ -627,6 +645,7 @@ internal class AllItemsViewModel @Inject constructor(
                 filters = viewState.filters + filter
             )
         }
+        EventBus.getDefault().post(UpdateFiltersEvent(viewState.filters))
         allItemsProcessor.filter(searchTerm = viewState.searchTerm, filters = viewState.filters)
     }
 
@@ -640,6 +659,7 @@ internal class AllItemsViewModel @Inject constructor(
                 filters = viewState.filters - filter
             )
         }
+        EventBus.getDefault().post(UpdateFiltersEvent(viewState.filters))
         allItemsProcessor.filter(searchTerm = viewState.searchTerm, filters = viewState.filters)
     }
 
@@ -647,21 +667,11 @@ internal class AllItemsViewModel @Inject constructor(
         if (isTablet) {
             onShowDownloadedFilesPopupClicked()
         } else {
-            initShowFilterArgs()
-            triggerEffect(AllItemsViewEffect.ShowFilterEffect)
+            val args = createShowFilterArgs()
+            val encodedArgs = navigationParamsMarshaller.encodeObjectToBase64(args)
+            triggerEffect(AllItemsViewEffect.ShowPhoneFilterEffect(encodedArgs))
         }
 
-    }
-
-    private fun initShowFilterArgs() {
-        val selectedTags =
-            viewState.filters.filterIsInstance<ItemsFilter.tags>().flatMap { it.tags }.toSet()
-        ScreenArguments.filterArgs = FilterArgs(
-            filters = viewState.filters,
-            collectionId = this.collection.identifier,
-            libraryId = this.library.identifier,
-            selectedTags = selectedTags
-        )
     }
 
     private fun onLongPressOptionsItemSelected(longPressOptionItem: LongPressOptionItem) {
@@ -696,6 +706,14 @@ internal class AllItemsViewModel @Inject constructor(
                 is LongPressOptionItem.TrashRestore -> {
                     set(trashed = false, setOf(longPressOptionItem.item.key))
                 }
+
+                is LongPressOptionItem.RetrieveMetadata -> {
+                    showRetrieveMetadataDialog(
+                        itemKey = longPressOptionItem.item.key,
+                        libraryId = longPressOptionItem.item.libraryId!!
+                    )
+                }
+
                 else -> {}
             }
         }
@@ -713,6 +731,16 @@ internal class AllItemsViewModel @Inject constructor(
         )
         triggerEffect(AllItemsViewEffect.ShowCollectionPickerEffect)
     }
+
+    private fun showRetrieveMetadataDialog(itemKey: String, libraryId: LibraryIdentifier) {
+        val args = RetrieveMetadataArgs(
+            itemKey = itemKey,
+            libraryId = libraryId,
+        )
+        val params = navigationParamsMarshaller.encodeObjectToBase64(args)
+        triggerEffect(AllItemsViewEffect.ShowRetrieveMetadataDialogEffect(params))
+    }
+
 
     private fun createParent(item: RItem) {
         val key = item.key
@@ -736,7 +764,7 @@ internal class AllItemsViewModel @Inject constructor(
     }
 
     fun onItemLongTapped(key: String) {
-        val item = allItemsProcessor.getResultByKey(key)
+        val item = allItemsProcessor.getResultByKey(key)!!
         if (this.collection.identifier.isTrash) {
             EventBus.getDefault().post(
                 ShowDashboardLongPressBottomSheet(
@@ -751,6 +779,12 @@ internal class AllItemsViewModel @Inject constructor(
         }
 
         val actions = mutableListOf<LongPressOptionItem>()
+
+        val attachment = allItemsProcessor.attachment(item.key, null)
+        val contentType = (attachment?.first?.type as? Attachment.Kind.file)?.contentType
+        if (item.rawType == ItemTypes.attachment && item.parent == null && contentType == "application/pdf") {
+            actions.add(LongPressOptionItem.RetrieveMetadata(item))
+        }
 
         if (item.rawType == ItemTypes.attachment && item.parent == null) {
             actions.add(LongPressOptionItem.CreateParentItem(item))
@@ -803,7 +837,7 @@ internal class AllItemsViewModel @Inject constructor(
     fun delete(keys: Set<String>) {
         viewModelScope.launch {
             perform(
-                dbWrapper = dbWrapper,
+                dbWrapper = dbWrapperMain,
                 request = MarkObjectsAsDeletedDbRequest(
                     clazz = RItem::class,
                     keys = keys.toList(),
@@ -830,7 +864,7 @@ internal class AllItemsViewModel @Inject constructor(
             libraryId = this.library.identifier,
             trashed = trashed
         )
-        perform(dbWrapper = dbWrapper, request = request).ifFailure { error ->
+        perform(dbWrapper = dbWrapperMain, request = request).ifFailure { error ->
             Timber.e(error, "ItemsStore: can't trash items")
             updateState {
                 copy(
@@ -845,7 +879,7 @@ internal class AllItemsViewModel @Inject constructor(
         val request = ReadItemDbRequest(libraryId = this.library.identifier, key = key)
 
         try {
-            val item = dbWrapper.realmDbStorage.perform(request = request)
+            val item = dbWrapperMain.realmDbStorage.perform(request = request)
             stopEditing()
             showItemDetail(DetailType.duplication(itemKey = item.key, collectionKey = this.collection.identifier.keyGet), library = this.library)
         } catch (error: Exception) {
@@ -909,6 +943,14 @@ internal class AllItemsViewModel @Inject constructor(
         showDeleteItemsConfirmation(getSelectedKeys())
     }
 
+    fun onDownloadSelectedAttachments() {
+        allItemsProcessor.downloadSelectedAttachments(getSelectedKeys())
+    }
+
+    fun onRemoveSelectedAttachments() {
+        allItemsProcessor.removeSelectedAttachments(getSelectedKeys())
+    }
+
     fun onEmptyTrash() {
         updateState {
             copy(
@@ -926,8 +968,11 @@ internal class AllItemsViewModel @Inject constructor(
     }
 
     fun navigateToCollections() {
-        ScreenArguments.collectionsArgs = CollectionsArgs(libraryId = fileStore.getSelectedLibrary(), fileStore.getSelectedCollectionId())
-        triggerEffect(AllItemsViewEffect.ShowCollectionsEffect)
+        viewModelScope.launch {
+            val collectionsArgs = CollectionsArgs(libraryId = fileStore.getSelectedLibraryAsync(), fileStore.getSelectedCollectionIdAsync())
+            val encodedArgs = navigationParamsMarshaller.encodeObjectToBase64(collectionsArgs, StandardCharsets.UTF_8)
+            triggerEffect(AllItemsViewEffect.ShowCollectionsEffect(encodedArgs))
+        }
     }
 
     fun onDismissDialog() {
@@ -941,7 +986,7 @@ internal class AllItemsViewModel @Inject constructor(
     fun emptyTrash() {
         viewModelScope.launch {
             perform(
-                dbWrapper = dbWrapper,
+                dbWrapper = dbWrapperMain,
                 request = EmptyTrashDbRequest(libraryId = this@AllItemsViewModel.library.identifier)
             ).ifFailure {
                 Timber.e(it, "AllItemsViewModel: can't empty trash")
@@ -1012,7 +1057,7 @@ internal class AllItemsViewModel @Inject constructor(
             libraryId = this.library.identifier
         )
         viewModelScope.launch {
-            perform(dbWrapper, request = request).ifFailure {
+            perform(dbWrapperMain, request = request).ifFailure {
                 Timber.e(it, "ItemsStore: can't delete items")
                 updateState {
                     copy(error = ItemsError.deletionFromCollection)
@@ -1030,7 +1075,7 @@ internal class AllItemsViewModel @Inject constructor(
         )
 
         viewModelScope.launch {
-            perform(dbWrapper, request = request).ifFailure {
+            perform(dbWrapperMain, request = request).ifFailure {
                 Timber.e(it, "ItemsStore: can't assign collections to items")
                 updateState {
                     copy(error = ItemsError.collectionAssignment)
@@ -1077,6 +1122,18 @@ internal class AllItemsViewModel @Inject constructor(
 
     fun onScanBarcode() {
         triggerEffect(ShowScanBarcode)
+    }
+
+    private fun createShowFilterArgs(): FilterArgs {
+        val selectedTags =
+            viewState.filters.filterIsInstance<ItemsFilter.tags>().flatMap { it.tags }.toSet()
+        val filterArgs = FilterArgs(
+            filters = viewState.filters,
+            collectionId = this.collection.identifier,
+            libraryId = this.library.identifier,
+            selectedTags = selectedTags
+        )
+        return filterArgs
     }
 
 }
@@ -1137,14 +1194,14 @@ internal data class AllItemsViewState(
 }
 
 internal sealed class AllItemsViewEffect : ViewEffect {
-    object ShowCollectionsEffect: AllItemsViewEffect()
-    object ShowItemDetailEffect: AllItemsViewEffect()
-    object ShowAddOrEditNoteEffect: AllItemsViewEffect()
+    data class ShowCollectionsEffect(val screenArgs: String): AllItemsViewEffect()
+    data class ShowItemDetailEffect(val screenArgs: String): AllItemsViewEffect()
+    data class ShowAddOrEditNoteEffect(val screenArgs: String): AllItemsViewEffect()
     object ShowItemTypePickerEffect : AllItemsViewEffect()
     data class ShowAddByIdentifierEffect(val params: String) : AllItemsViewEffect()
     object ShowSortPickerEffect : AllItemsViewEffect()
     object ShowCollectionPickerEffect: AllItemsViewEffect()
-    object ShowFilterEffect : AllItemsViewEffect()
+    data class ShowPhoneFilterEffect(val params: String) : AllItemsViewEffect()
     data class OpenWebpage(val uri: Uri) : AllItemsViewEffect()
     data class OpenFile(val file: File, val mimeType: String) : AllItemsViewEffect()
     data class ShowZoteroWebView(val url: String): AllItemsViewEffect()
@@ -1152,5 +1209,7 @@ internal sealed class AllItemsViewEffect : ViewEffect {
     object ShowImageViewer : AllItemsViewEffect()
     data class NavigateToPdfScreen(val params: String) : AllItemsViewEffect()
     object ScreenRefresh : AllItemsViewEffect()
-    object ShowScanBarcode: AllItemsViewEffect()
+    object ShowScanBarcode : AllItemsViewEffect()
+    data class ShowRetrieveMetadataDialogEffect(val params: String) : AllItemsViewEffect()
+    data class MaybeScrollToTop(val shouldScrollToTop: Boolean) : AllItemsViewEffect()
 }

@@ -6,12 +6,14 @@ import kotlinx.coroutines.isActive
 import okhttp3.ResponseBody
 import org.zotero.android.BuildConfig
 import org.zotero.android.androidx.file.copyWithExt
-import org.zotero.android.api.NoRedirectApi
-import org.zotero.android.api.SyncApi
+import org.zotero.android.api.ZoteroNoRedirectApi
+import org.zotero.android.api.ZoteroApi
 import org.zotero.android.api.network.CustomResult
 import org.zotero.android.api.network.safeApiCall
 import org.zotero.android.helpers.Unzipper
 import org.zotero.android.sync.LibraryIdentifier
+import org.zotero.android.webdav.WebDavController
+import org.zotero.android.webdav.WebDavSessionStorage
 import timber.log.Timber
 import java.io.BufferedInputStream
 import java.io.File
@@ -22,9 +24,11 @@ class AttachmentDownloadOperation(
     private val file: File,
     private val download: AttachmentDownloader.Download,
     private val userId: Long,
-    private val syncApi: SyncApi,
-    private val noRedirectApi: NoRedirectApi,
+    private val zoteroApi: ZoteroApi,
+    private val zoteroNoRedirectApi: ZoteroNoRedirectApi,
     private val unzipper: Unzipper,
+    private val webDavController: WebDavController,
+    private val sessionStorage: WebDavSessionStorage,
 ) {
     private enum class State {
         downloading, unzipping, done
@@ -53,15 +57,23 @@ class AttachmentDownloadOperation(
         this.coroutineScope == null || this.coroutineScope?.isActive == false
 
     private suspend fun startDownload() {
-        var isCompressed: Boolean //TODO Use WebDavController
         Timber.i("AttachmentDownloadOperation: start downloading ${this.download.key}")
         this.state = State.downloading
 
-        val networkResult = downloadRequest(
-            key = this.download.key,
-            libraryId = this.download.libraryId,
-            userId = this.userId
-        )
+        val shouldUseWebDav =
+            this.download.libraryId is LibraryIdentifier.custom && this.sessionStorage.isEnabled
+        val networkResult = if (shouldUseWebDav) {
+            downloadRequestWebDav(
+                key = this.download.key,
+            )
+        } else {
+            downloadRequestZotero(
+                key = this.download.key,
+                libraryId = this.download.libraryId,
+                userId = this.userId
+            )
+        }
+
 
         if (networkResult is CustomResult.GeneralError) {
             processError(networkResult)
@@ -70,7 +82,7 @@ class AttachmentDownloadOperation(
 
         try {
             networkResult as CustomResult.GeneralSuccess
-            isCompressed = networkResult.value!!.second
+            val isCompressed = networkResult.value!!.second
             val responseBody = networkResult.value!!.first
             val byteStream = responseBody.byteStream()
 
@@ -156,22 +168,33 @@ class AttachmentDownloadOperation(
         }
     }
 
-    private suspend fun downloadRequest(key: String, libraryId: LibraryIdentifier, userId: Long): CustomResult<Pair<ResponseBody, Boolean>> {
-        //TODO download from WebDavController
+    private suspend fun downloadRequestZotero(key: String, libraryId: LibraryIdentifier, userId: Long): CustomResult<Pair<ResponseBody, Boolean>> {
+        var isCompressed: Boolean = sessionStorage.isEnabled && !download.libraryId.isGroupLibrary
         val url =
             BuildConfig.BASE_API_URL + "/" + libraryId.apiPath(userId = userId) + "/items/$key/file"
 
-        val headersResponse = noRedirectApi.getRequestHeadersApi(url)
-        val isCompressed = headersResponse.headers()["Zotero-File-Compressed"] == "Yes"
+        val headersResponse = zoteroNoRedirectApi.getRequestHeadersApi(url)
+        if (!isCompressed) {
+            isCompressed = headersResponse.headers()["Zotero-File-Compressed"] == "Yes"
+        }
 
         val networkResult = safeApiCall {
-            syncApi.downloadFile(url)
+            zoteroApi.downloadFile(url)
         }
         if (networkResult is CustomResult.GeneralError) {
             return networkResult
         }
         networkResult as CustomResult.GeneralSuccess
         return CustomResult.GeneralSuccess(Pair(networkResult.value!!, isCompressed))
+    }
+
+    private suspend fun downloadRequestWebDav(key: String): CustomResult<Pair<ResponseBody, Boolean>> {
+        val networkResult = webDavController.download(key = key)
+        if (networkResult is CustomResult.GeneralError) {
+            return networkResult
+        }
+        networkResult as CustomResult.GeneralSuccess
+        return CustomResult.GeneralSuccess(Pair(networkResult.value!!, true))
     }
 
     private fun finish(result: CustomResult<Unit>) {

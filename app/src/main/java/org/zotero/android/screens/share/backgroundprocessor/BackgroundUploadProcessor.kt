@@ -1,7 +1,8 @@
 package org.zotero.android.screens.share.backgroundprocessor
 
 import android.content.Context
-import android.os.Build
+import android.webkit.MimeTypeMap
+import com.google.gson.Gson
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -10,16 +11,21 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import org.zotero.android.BuildConfig
-import org.zotero.android.api.NoAuthenticationApi
-import org.zotero.android.api.SyncApi
+import org.zotero.android.api.NonZoteroApi
+import org.zotero.android.api.ZoteroApi
+import org.zotero.android.api.mappers.UpdatesResponseMapper
 import org.zotero.android.api.network.CustomResult
 import org.zotero.android.api.network.safeApiCall
+import org.zotero.android.architecture.logging.DeviceInfoProvider
 import org.zotero.android.backgrounduploader.BackgroundUpload
-import org.zotero.android.database.DbWrapper
+import org.zotero.android.database.DbWrapperMain
 import org.zotero.android.database.requests.MarkAttachmentUploadedDbRequest
+import org.zotero.android.database.requests.ReadItemDbRequest
 import org.zotero.android.screens.share.service.ShareUploadService
 import org.zotero.android.sync.LibraryIdentifier
 import org.zotero.android.sync.SchemaController
+import org.zotero.android.sync.SyncObject
+import org.zotero.android.webdav.WebDavController
 import timber.log.Timber
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
@@ -28,11 +34,14 @@ import javax.inject.Singleton
 
 @Singleton
 class BackgroundUploadProcessor @Inject constructor(
-    private val noAuthenticationApi: NoAuthenticationApi,
-    private val syncApi: SyncApi,
+    private val nonZoteroApi: NonZoteroApi,
+    private val zoteroApi: ZoteroApi,
     private val schemaController: SchemaController,
-    private val dbWrapper: DbWrapper,
+    private val dbWrapperMain: DbWrapperMain,
     private val context: Context,
+    private val gson: Gson,
+    private val updatesResponseMapper: UpdatesResponseMapper,
+    private val webDavController: WebDavController,
 ) {
 
     private val limitedParallelismDispatcher =
@@ -41,6 +50,11 @@ class BackgroundUploadProcessor @Inject constructor(
     private var resultsProcessorCoroutineScope = CoroutineScope(limitedParallelismDispatcher)
 
     private var uploadsInProgressCount: AtomicInteger = AtomicInteger(0)
+
+    sealed class Error : Exception() {
+        object expired : Error()
+        object cantSubmitItem : Error()
+    }
 
     fun startAsync(
         upload: BackgroundUpload,
@@ -83,18 +97,30 @@ class BackgroundUploadProcessor @Inject constructor(
         headers: Map<String, String>
     ): CustomResult<Unit> {
 
-        val uploadAttachmentNetworkResult = safeApiCall {
-            val requestBody = createRequestBody(upload.fileUrl, mimeType)
-            val part = createPart(filename, requestBody)
+        val uploadAttachmentNetworkResult = when (upload.type) {
+            is BackgroundUpload.Kind.zotero -> {
+                safeApiCall {
+                    val requestBody = createRequestBody(upload.fileUrl, mimeType)
+                    val part = createPart(filename, requestBody)
 
-            val headersWithExtra = setupHeaders(originalHeaders = headers)
+                    val headersWithExtra = setupHeaders(originalHeaders = headers)
 
-            noAuthenticationApi.uploadAttachment(
-                url = upload.remoteUrl,
-                headers = headersWithExtra,
-                file = part,
-                params = parameters
-            )
+                    nonZoteroApi.uploadAttachment(
+                        url = upload.remoteUrl,
+                        headers = headersWithExtra,
+                        file = part,
+                        params = parameters
+                    )
+                }
+            }
+            is BackgroundUpload.Kind.webdav -> {
+                safeApiCall {
+                    val url = upload.remoteUrl
+                    val newUrl = "${url}${upload.key}.zip"
+                    val requestBody = createRequestBody(upload.fileUrl)
+                    webDavController.uploadAttachment(url = newUrl, body = requestBody)
+                }
+            }
         }
 
         if (uploadAttachmentNetworkResult !is CustomResult.GeneralSuccess) {
@@ -112,8 +138,15 @@ class BackgroundUploadProcessor @Inject constructor(
             }
 
             is BackgroundUpload.Kind.webdav -> {
-                //TODO implement webdav
-                CustomResult.GeneralSuccess(null)
+                finishWebdavUpload(
+                    key = upload.key,
+                    libraryId = upload.libraryId,
+                    mtime = upload.type.mtime,
+                    md5 = upload.md5,
+                    userId = upload.userId,
+                    fileUrl = upload.fileUrl,
+                    webDavUrl = upload.remoteUrl
+                )
             }
         }
     }
@@ -129,7 +162,7 @@ class BackgroundUploadProcessor @Inject constructor(
             val headers = mapOf("If-None-Match" to "*")
             val url =
                 BuildConfig.BASE_API_URL + "/" + libraryId.apiPath(userId = userId) + "/items/" + key + "/file"
-            syncApi.registerUpload(
+            zoteroApi.registerUpload(
                 url = url,
                 headers = headers,
                 upload = uploadKey
@@ -149,9 +182,7 @@ class BackgroundUploadProcessor @Inject constructor(
 //        headersWithExtra["Content-Type"] = contentType
         headersWithExtra["Zotero-API-Version"] = 3.toString()
         headersWithExtra["Zotero-Schema-Version"] = schemaController.version.toString()
-        headersWithExtra["User-Agent"] = "zotero" +
-                "android/${Build.VERSION.SDK_INT} " +
-                "(${Build.MANUFACTURER} ${Build.DEVICE})"
+        headersWithExtra["User-Agent"] = DeviceInfoProvider.userAgentString
         return headersWithExtra
 
     }
@@ -162,7 +193,7 @@ class BackgroundUploadProcessor @Inject constructor(
         libraryId: LibraryIdentifier,
     ) {
         try {
-            dbWrapper.realmDbStorage.perform(
+            dbWrapperMain.realmDbStorage.perform(
                 MarkAttachmentUploadedDbRequest(
                     libraryId = libraryId,
                     key = key,
@@ -191,4 +222,97 @@ class BackgroundUploadProcessor @Inject constructor(
         this.resultsProcessorCoroutineScope.cancel()
         this.resultsProcessorCoroutineScope = CoroutineScope(limitedParallelismDispatcher)
     }
+
+    private suspend fun submitItemWithHashAndMtime(
+        key: String,
+        libraryId: LibraryIdentifier,
+        userId: Long,
+    ): Int {
+        Timber.i("BackgroundUploadProcessor: submit mtime and md5")
+
+        val loadParameters: Map<String, Any>
+        try {
+            val item = dbWrapperMain.realmDbStorage.perform(
+                request = ReadItemDbRequest(
+                    libraryId = libraryId,
+                    key = key
+                )
+            )
+            val parameters = item.mtimeAndHashParameters
+            item.realm?.refresh()
+            loadParameters = parameters
+        } catch (e: Exception) {
+            Timber.e(e, "BackgroundUploadProcessor: can't load params")
+            throw e
+        }
+
+        val objectType = SyncObject.item
+        val url =
+            BuildConfig.BASE_API_URL + "/" + libraryId.apiPath(userId = userId) + "/" + objectType.apiPath
+
+        val networkResult = safeApiCall {
+            val jsonBody = gson.toJson(listOf(loadParameters))
+
+            val headers = mutableMapOf<String, String>()
+            zoteroApi.updates(url = url, jsonBody = jsonBody, headers = headers)
+        }
+
+        if (networkResult !is CustomResult.GeneralSuccess) {
+            networkResult as CustomResult.GeneralError.NetworkError
+            throw Exception("Network Error. ${networkResult.httpCode}. ${networkResult.stringResponse}")
+        }
+        networkResult as CustomResult.GeneralSuccess.NetworkSuccess
+        val newVersion: Int = networkResult.lastModifiedVersion
+        val json = networkResult.value!!
+        val response = updatesResponseMapper.fromJson(dictionary = json, keys = listOf(key))
+
+        if (response.failed.isNotEmpty()) {
+            throw Error.cantSubmitItem
+        }
+        return newVersion
+    }
+
+    private suspend fun finishWebdavUpload(
+        key: String,
+        libraryId: LibraryIdentifier,
+        mtime: Long,
+        md5: String,
+        userId: Long,
+        fileUrl: File,
+        webDavUrl: String,
+    ): CustomResult<Unit> {
+        webDavController.finishUpload(
+            key = key,
+            result = CustomResult.GeneralSuccess(Triple(mtime, md5, webDavUrl)),
+            file = null
+        )
+        try {
+            val version = submitItemWithHashAndMtime(
+                key = key,
+                libraryId = libraryId,
+                userId = userId
+            )
+            markAttachmentAsUploaded(version = version, key = key, libraryId = libraryId)
+            delete(file = fileUrl)
+        } catch (e: Exception) {
+            delete(file = fileUrl)
+            return CustomResult.GeneralError.CodeError(e)
+        }
+        return CustomResult.GeneralSuccess(Unit)
+    }
+
+    private fun delete(file: File) {
+        Timber.i("BackgroundUploadProcessor: delete file after upload - ${file.absolutePath}")
+        file.delete()
+    }
+
+    private fun createRequestBody(file: File): RequestBody {
+        val mediaType =
+            MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension)
+                ?.toMediaTypeOrNull()
+
+        val requestBody = file.asRequestBody(mediaType)
+        return requestBody
+    }
+
 }

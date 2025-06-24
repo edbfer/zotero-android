@@ -1,6 +1,8 @@
 package org.zotero.android.database.requests
 
 import io.realm.RealmQuery
+import org.apache.commons.text.StringEscapeUtils
+import org.apache.commons.text.translate.UnicodeUnescaper
 import org.zotero.android.database.objects.ItemTypes
 import org.zotero.android.database.objects.ObjectSyncState
 import org.zotero.android.database.objects.UpdatableChangeType
@@ -149,6 +151,10 @@ fun <T> RealmQuery<T>.baseTagsToDelete(): RealmQuery<T> {
 
 fun <T> RealmQuery<T>.name(name: String): RealmQuery<T> {
     return rawPredicate("name = $0", name)
+}
+
+fun <T> RealmQuery<T>.groupId(identifier: Int): RealmQuery<T> {
+    return rawPredicate("identifier == $0", identifier)
 }
 
 fun <T> RealmQuery<T>.name(name: String, libraryId: LibraryIdentifier): RealmQuery<T> {
@@ -359,7 +365,9 @@ fun <T> RealmQuery<T>.itemSearch(components: List<String>): RealmQuery<T> {
 }
 
 private fun <T> itemSearchSubpredicates(query: RealmQuery<T>, text: String) : RealmQuery<T>  {
-    val quotedText = "\"$text\""
+    val escaped = StringEscapeUtils.escapeJava(text)
+    val unicodeChars = UnicodeUnescaper().translate(escaped)
+    val quotedText = "\"$unicodeChars\""
 
     val keyPredicate = "key == $quotedText"
     val childrenKeyPredicate = "any children.key == $quotedText"
@@ -439,4 +447,62 @@ fun <T> RealmQuery<T>.typedTagLibrary(
             equalTo("tag.groupKey", identifier.groupId)
         }
     }
+}
+
+fun <T> RealmQuery<T>.baseAllAttachmentsPredicates(
+    libraryId: LibraryIdentifier
+): RealmQuery<T> {
+    val result = this
+        .beginGroup()
+        .library(libraryId)
+        .and()
+        .notSyncState(ObjectSyncState.dirty)
+        .and()
+        .deleted(false)
+        .and()
+        .isTrash(false)
+        .and()
+        .item(type = ItemTypes.attachment)
+        .endGroup()
+    return result
+}
+
+fun <T> RealmQuery<T>.allAttachments(
+    collectionId: CollectionIdentifier,
+    libraryId: LibraryIdentifier
+): RealmQuery<T> {
+    var predicates = baseAllAttachmentsPredicates(libraryId)
+
+    when (collectionId) {
+        is CollectionIdentifier.collection -> {
+            val key = collectionId.key
+            predicates = predicates
+                .and()
+                .beginGroup()
+                .rawPredicate("any collections.key = \"${key}\"")
+                .or()
+                .rawPredicate("any parent.collections.key = \"${key}\"")
+                .endGroup()
+        }
+
+        else -> {
+            //no-op
+        }
+    }
+
+    return predicates
+}
+
+fun <T> RealmQuery<T>.allAttachments(
+    keys: Set<String>, libraryId: LibraryIdentifier
+): RealmQuery<T> {
+    var predicates = baseAllAttachmentsPredicates(libraryId)
+    predicates = predicates
+        .and()
+        .beginGroup()
+        .`in`("collections.key", keys.toTypedArray())
+        .or()
+        .`in`("parent.collections.key", keys.toTypedArray())
+        .endGroup()
+    return predicates
 }

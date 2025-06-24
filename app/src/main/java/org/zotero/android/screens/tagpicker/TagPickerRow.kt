@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.Text
-import androidx.compose.material.ripple.rememberRipple
+import androidx.compose.material.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import org.zotero.android.uicomponents.foundation.safeClickable
 import org.zotero.android.uicomponents.misc.NewDivider
 import org.zotero.android.uicomponents.theme.CustomTheme
+import androidx.core.graphics.toColorInt
 
 @Composable
 fun TagPickerRow(
@@ -39,7 +40,7 @@ fun TagPickerRow(
             .height(44.dp)
             .safeClickable(
                 interactionSource = remember { MutableInteractionSource() },
-                indication = rememberRipple(bounded = true),
+                indication = ripple(bounded = true),
                 onClick = onTap
             )
             .background(color = selectableBackgroundColor)
@@ -79,7 +80,7 @@ fun TagPickerRow(
 
 @Composable
 private fun TagPickerCircle(tagColorHex: String) {
-    val colorInt = android.graphics.Color.parseColor(tagColorHex)
+    val colorInt = tagColorHex.toColorInt()
     Canvas(modifier = Modifier.size(16.dp),
         onDraw = {
             drawCircle(color = Color(colorInt))

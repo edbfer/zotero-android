@@ -1,7 +1,6 @@
 package org.zotero.android.sync
 
 import InitializeCustomLibrariesDbRequest
-import android.content.Context
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -13,19 +12,18 @@ import org.zotero.android.architecture.Defaults
 import org.zotero.android.architecture.coroutines.ApplicationScope
 import org.zotero.android.architecture.coroutines.Dispatchers
 import org.zotero.android.attachmentdownloader.AttachmentDownloader
-import org.zotero.android.database.DbWrapper
+import org.zotero.android.database.DbWrapperMain
 import org.zotero.android.database.requests.CleanupUnusedTags
 import org.zotero.android.files.FileStore
 import org.zotero.android.websocket.ChangeWsResponse
+import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class UserControllers @Inject constructor(
     dispatcher: CoroutineDispatcher,
-    private val fileStore: FileStore,
-    private val dbWrapper: DbWrapper,
-    private val context: Context,
+    private val dbWrapperMain: DbWrapperMain,
     private val syncController: SyncUseCase,
     private val syncScheduler: SyncScheduler,
     private val objectUserChangeEventStream: ObjectUserChangeEventStream,
@@ -35,6 +33,7 @@ class UserControllers @Inject constructor(
     private val changeWsResponseKindEventStream: ChangeWsResponseKindEventStream,
     private val fileDownloader: AttachmentDownloader,
     private val defaults: Defaults,
+    private val fileStore: FileStore
 ) {
 
     private lateinit var changeObserver: ObjectUserChangeObserver
@@ -55,9 +54,10 @@ class UserControllers @Inject constructor(
         fileDownloader.init(userId = userId)
         var isFirstLaunch = false
         coroutineScope.launch {
-            dbWrapper.realmDbStorage.perform(coordinatorAction = { coordinator ->
+            dbWrapperMain.realmDbStorage.perform(coordinatorAction = { coordinator ->
                 isFirstLaunch = coordinator.perform(InitializeCustomLibrariesDbRequest())
                 coordinator.perform(CleanupUnusedTags())
+                coordinator.invalidate()
             })
         }
 
@@ -65,7 +65,8 @@ class UserControllers @Inject constructor(
         this.isFirstLaunch = isFirstLaunch
         syncScheduler.init(DelayIntervals.retry)
         this.changeObserver = ObjectUserChangeObserver(
-            dbWrapper = dbWrapper, observable = objectUserChangeEventStream,
+            dbWrapperMain = dbWrapperMain,
+            observable = objectUserChangeEventStream,
             applicationScope = applicationScope,
             dispatchers = dispatchers
         )
@@ -76,6 +77,15 @@ class UserControllers @Inject constructor(
     }
 
     fun enableSync(apiKey: String) {
+        Timber.i("UserControllers: performFullSyncGuard: ${defaults.performFullSyncGuard()}; currentPerformFullSyncGuard: ${defaults.currentPerformFullSyncGuard}")
+        if (defaults.performFullSyncGuard() < defaults.currentPerformFullSyncGuard) {
+            defaults.setDidPerformFullSyncFix(false)
+            defaults.setPerformFullSyncGuard(defaults.currentPerformFullSyncGuard)
+        } else {
+            defaults.setDidPerformFullSyncFix(true)
+        }
+        Timber.i("UserControllers: didPerformFullSyncFix: ${defaults.didPerformFullSyncFix()}")
+
         objectUserChangeEventStream.flow()
             .debounce(3000)
             .onEach { changedLibraries ->
@@ -98,12 +108,18 @@ class UserControllers @Inject constructor(
             }
         }.launchIn(applicationScope)
 
-        this.webSocketController.connect(apiKey = apiKey, completed = {
-            //TODO backgroundUploadObserver.updateSessions()
-            val type: SyncKind =  SyncKind.normal
-            this.syncScheduler.request(type = type, libraries = Libraries.all)
-        })
+        this.webSocketController.connect(apiKey = apiKey, completed = ::onWebSocketConnectionEstablished)
 
+    }
+
+    private fun onWebSocketConnectionEstablished() {
+        //TODO backgroundUploadObserver.updateSessions()
+        val type = if (defaults.didPerformFullSyncFix()) {
+            SyncKind.normal
+        } else {
+            SyncKind.full
+        }
+        this.syncScheduler.request(type = type, libraries = Libraries.all)
     }
 
     fun disableSync(apiKey: String?) {
@@ -113,7 +129,10 @@ class UserControllers @Inject constructor(
     }
 
     private fun createDbStorage(userId: Long) {
-        val file = fileStore.dbFile(userId)
-        dbWrapper.initWithMainConfiguration(dbFile = file)
+        dbWrapperMain.initWithMainConfiguration(userId)
+    }
+
+    fun maybeReconnectWebsockets() {
+        webSocketController.maybeReconnect(completed = ::onWebSocketConnectionEstablished)
     }
 }

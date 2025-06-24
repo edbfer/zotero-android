@@ -12,12 +12,12 @@ class FetchAndStoreGroupSyncAction(
 ) : SyncAction() {
     suspend fun result(): CustomResult<Unit> {
         val networkResult = safeApiCall {
-            syncApi.groupRequest(identifier = identifier)
+            zoteroApi.groupRequest(identifier = identifier)
         }
         if (networkResult !is CustomResult.GeneralSuccess.NetworkSuccess) {
             return networkResult as CustomResult.GeneralError
         }
-        dbWrapper.realmDbStorage.perform(
+        dbWrapperMain.realmDbStorage.perform(
             StoreGroupDbRequest(
                 response = networkResult.value!!,
                 userId = this.userId

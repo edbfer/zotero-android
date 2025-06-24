@@ -1,6 +1,5 @@
 package org.zotero.android.screens.itemdetails
 
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,7 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.Text
-import androidx.compose.material.ripple.rememberRipple
+import androidx.compose.material.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -22,6 +21,7 @@ import org.zotero.android.architecture.ui.CustomLayoutSize
 import org.zotero.android.screens.itemdetails.data.ItemDetailCreator
 import org.zotero.android.screens.itemdetails.data.ItemDetailField
 import org.zotero.android.uicomponents.Strings
+import org.zotero.android.uicomponents.foundation.debounceCombinedClickable
 import org.zotero.android.uicomponents.misc.CustomDivider
 import org.zotero.android.uicomponents.theme.CustomPalette
 import org.zotero.android.uicomponents.theme.CustomTheme
@@ -62,7 +62,7 @@ internal fun ItemDetailsViewScreen(
                     showDivider = false
                 )
 
-                if (!viewState.data.isAttachment) {
+                if (!viewState.data.isAttachment && !viewState.data.abstract.isNullOrBlank()) {
                     CustomDivider(
                         modifier = Modifier
                             .padding(top = 4.dp)
@@ -108,9 +108,9 @@ private fun ListOfCreatorRows(
         val value = creator.name
         Row(
             modifier = Modifier
-                .combinedClickable(
+                .debounceCombinedClickable(
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = rememberRipple(),
+                    indication = ripple(),
                     onLongClick = { onCreatorLongClick(creator) },
                     onClick = {}
                 )

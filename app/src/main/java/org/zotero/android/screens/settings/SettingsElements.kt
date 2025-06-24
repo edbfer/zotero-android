@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Icon
 import androidx.compose.material.Text
-import androidx.compose.material.ripple.rememberRipple
+import androidx.compose.material.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -64,7 +64,7 @@ internal fun SettingsItem(
             .background(CustomTheme.colors.surface)
             .safeClickable(
                 interactionSource = remember { MutableInteractionSource() },
-                indication = rememberRipple(),
+                indication = ripple(),
                 onClick = { onItemTapped() },
             ),
         verticalAlignment = Alignment.CenterVertically,
@@ -101,7 +101,7 @@ internal fun SettingsSectionTitle(
 ) {
     androidx.compose.material3.Text(
         modifier = Modifier.padding(start = 16.dp, bottom = 4.dp),
-        text = stringResource(id = titleId),
+        text = stringResource(id = titleId).uppercase(),
         fontSize = 14.sp,
         color = CustomTheme.colors.secondaryContent,
         maxLines = 1,

@@ -3,11 +3,12 @@ package org.zotero.android.screens.share
 import android.content.Context
 import org.zotero.android.BuildConfig
 import org.zotero.android.api.network.CustomResult
-import org.zotero.android.database.DbWrapper
+import org.zotero.android.database.DbWrapperMain
 import org.zotero.android.database.requests.ReadGroupDbRequest
 import org.zotero.android.sync.LibraryIdentifier
 import org.zotero.android.sync.Parsing
 import org.zotero.android.sync.SchemaError
+import org.zotero.android.sync.SyncActionError
 import org.zotero.android.translator.data.AttachmentState
 import org.zotero.android.translator.data.TranslationWebViewError
 import org.zotero.android.uicomponents.Strings
@@ -18,7 +19,7 @@ import javax.inject.Singleton
 @Singleton
 class ShareErrorProcessor @Inject constructor(
     private val context: Context,
-    private val dbWrapper: DbWrapper
+    private val dbWrapperMain: DbWrapperMain,
 ) {
     fun errorMessage(error: AttachmentState.Error): String? {
         return when (error) {
@@ -36,6 +37,9 @@ class ShareErrorProcessor @Inject constructor(
 
             AttachmentState.Error.downloadFailed -> {
                 context.getString(Strings.errors_shareext_download_failed)
+            }
+            AttachmentState.Error.proxiedUrlsNotSupported -> {
+                context.getString(Strings.errors_shareext_proxied_urls_not_supported)
             }
 
             AttachmentState.Error.downloadedFileNotPdf -> {
@@ -75,7 +79,7 @@ class ShareErrorProcessor @Inject constructor(
                     is LibraryIdentifier.group -> {
                         val groupId = error.libraryIdentifier.groupId
                         val group =
-                            dbWrapper.realmDbStorage.perform(ReadGroupDbRequest(identifier = groupId))
+                            dbWrapperMain.realmDbStorage.perform(ReadGroupDbRequest(identifier = groupId))
                         val groupName = group?.name ?: "$groupId"
                         return context.getString(
                             Strings.errors_shareext_group_quota_reached,
@@ -152,6 +156,11 @@ class ShareErrorProcessor @Inject constructor(
                 }
                 if (error is TranslationWebViewError) {
                     return AttachmentState.Error.webViewError(error)
+                }
+                if (error is SyncActionError.authorizationFailed) {
+                    if (libraryId != null) {
+                        return AttachmentState.Error.quotaLimit(libraryId)
+                    }
                 }
             }
 

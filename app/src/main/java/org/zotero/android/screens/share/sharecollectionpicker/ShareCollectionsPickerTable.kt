@@ -1,7 +1,6 @@
 package org.zotero.android.screens.share.sharecollectionpicker
 
 import androidx.annotation.DrawableRes
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -15,7 +14,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.Icon
 import androidx.compose.material.Text
-import androidx.compose.material.ripple.rememberRipple
+import androidx.compose.material.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -28,6 +27,7 @@ import org.zotero.android.architecture.ui.CustomLayoutSize
 import org.zotero.android.screens.collections.data.CollectionItemWithChildren
 import org.zotero.android.sync.Library
 import org.zotero.android.uicomponents.Drawables
+import org.zotero.android.uicomponents.foundation.debounceCombinedClickable
 import org.zotero.android.uicomponents.icon.IconWithPadding
 import org.zotero.android.uicomponents.misc.NewDivider
 import org.zotero.android.uicomponents.theme.CustomTheme
@@ -136,9 +136,9 @@ private fun ShareRowItem(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = rowModifier
-                .combinedClickable(
+                .debounceCombinedClickable(
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = rememberRipple(),
+                    indication = ripple(),
                     onClick = onRowTapped,
                 )
         ) {

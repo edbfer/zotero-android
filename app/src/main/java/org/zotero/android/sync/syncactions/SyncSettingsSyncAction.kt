@@ -20,7 +20,7 @@ class SyncSettingsSyncAction(
             BuildConfig.BASE_API_URL + "/" + libraryId.apiPath(userId = this.userId) + "/settings"
 
         val networkResult = safeApiCall {
-            syncApi.settingsRequest(
+            zoteroApi.settingsRequest(
                 url = url,
                 since = sinceVersion,
                 headers = mapOf("If-Modified-Since-Version" to this.sinceVersion.toString())
@@ -38,7 +38,7 @@ class SyncSettingsSyncAction(
         val value = networkResult.value!!
         val response = settingsResponseMapper.fromJson(value)
         val request = StoreSettingsDbRequest(response = response, libraryId = this.libraryId)
-        dbWrapper.realmDbStorage.perform(request = request)
+        dbWrapperMain.realmDbStorage.perform(request = request)
         val settingsChanged = newVersion != this.sinceVersion
         return CustomResult.GeneralSuccess(Pair(settingsChanged, newVersion))
     }

@@ -3,8 +3,6 @@ package org.zotero.android.pdf.reader
 import android.content.res.Resources
 import android.net.Uri
 import android.util.TypedValue
-import android.view.Gravity
-import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,18 +11,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.FragmentContainerView
-import com.pspdfkit.ui.PdfThumbnailBar
 import org.zotero.android.R
 import org.zotero.android.architecture.ui.CustomLayoutSize
 import timber.log.Timber
 
 @Composable
-fun PdfReaderPspdfKitView(uri: Uri, viewModel: PdfReaderViewModel) {
+fun PdfReaderPspdfKitView(
+    uri: Uri,
+    vMInterface: PdfReaderVMInterface
+) {
     val activity = LocalContext.current as? AppCompatActivity ?: return
     val annotationMaxSideSize = annotationMaxSideSize()
     val fragmentManager = activity.supportFragmentManager
     val layoutType = CustomLayoutSize.calculateLayoutType()
-    viewModel.annotationMaxSideSize = annotationMaxSideSize
+    vMInterface.annotationMaxSideSize = annotationMaxSideSize
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
@@ -36,21 +36,11 @@ fun PdfReaderPspdfKitView(uri: Uri, viewModel: PdfReaderViewModel) {
             }
             frameLayout.addView(fragmentContainerView)
 
-            val pdfThumbnailBar = PdfThumbnailBar(context)
-            val thumbnailBarLayoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-            thumbnailBarLayoutParams.gravity = Gravity.BOTTOM
-            pdfThumbnailBar.layoutParams = thumbnailBarLayoutParams
-            frameLayout.addView(pdfThumbnailBar)
-
-            viewModel.init(
+            vMInterface.init(
                 isTablet = layoutType.isTablet(),
                 uri = uri,
                 containerId = fragmentContainerView.id,
                 fragmentManager = fragmentManager,
-                pdfThumbnailBar = pdfThumbnailBar,
                 annotationMaxSideSize = annotationMaxSideSize
             )
             frameLayout

@@ -3,6 +3,7 @@ package org.zotero.android.api.pojo.sync
 import com.google.gson.Gson
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import com.google.gson.JsonPrimitive
 import org.zotero.android.database.objects.AnnotationType
 import org.zotero.android.database.objects.FieldKeys
 import org.zotero.android.database.objects.ItemTypes
@@ -235,76 +236,45 @@ data class ItemResponse(
 
             for (objectS in json.entrySet()) {
                 when (objectS.key) {
-                    FieldKeys.Item.Annotation.Position.pageIndex -> {
-                        if (objectS.value?.asInt == null) {
-                            throw SchemaError.invalidValue(
-                                value = "${objectS.value}",
-                                field = FieldKeys.Item.Annotation.Position.pageIndex,
-                                key = key
-                            )
-                        }
-                    }
-
-
-                    FieldKeys.Item.Annotation.Position.lineWidth -> {
-                        if (objectS.value?.asDouble == null) {
-                            throw SchemaError.invalidValue(
-                                value = "${objectS.value}",
-                                field = FieldKeys.Item.Annotation.Position.lineWidth,
-                                key = key
-                            )
-                        }
-                    }
-
-
                     FieldKeys.Item.Annotation.Position.paths -> {
                         val parsedPaths = objectS.value?.unmarshalList<List<Double>>(gson)
-                        if (parsedPaths == null || (parsedPaths.isEmpty() || parsedPaths.firstOrNull { it.size % 2 != 0 } != null)) {
-                            throw SchemaError.invalidValue(
-                                value = "${objectS.value}",
-                                field = FieldKeys.Item.Annotation.Position.paths,
-                                key = key
-                            )
+                        if (parsedPaths != null && (parsedPaths.isNotEmpty() && parsedPaths.firstOrNull { it.size % 2 != 0 } == null)) {
+                            paths = parsedPaths
                         }
-
-                        paths = parsedPaths
                         continue
                     }
 
-                FieldKeys.Item.Annotation.Position.rects -> {
-                    val parsedRects = objectS.value?.unmarshalList<List<Double>>(gson)
-                    if (parsedRects == null || (parsedRects.isEmpty() || parsedRects.firstOrNull { it.size != 4 } != null)) {
-                        throw SchemaError.invalidValue(
-                            value = "${objectS.value}",
-                            field = FieldKeys.Item.Annotation.Position.rects,
-                            key = key
-                        )
+                    FieldKeys.Item.Annotation.Position.rects -> {
+                        val parsedRects = objectS.value?.unmarshalList<List<Double>>(gson)
+                        if (parsedRects != null && (parsedRects.isNotEmpty() && parsedRects.firstOrNull { it.size != 4 } == null)) {
+                            rects = parsedRects
+                        }
+                        continue
                     }
-                    rects = parsedRects
-                    continue
                 }
-            }
 
-                val asStr = objectS.value?.asString
-                val asInt = asStr?.toIntOrNull()
-                val asDouble = asStr?.toDoubleOrNull()
-                val asBoolean = asStr?.toBooleanStrictOrNull()
-                val value = if (asInt != null) {
-                    asInt.toString()
-                } else if (asDouble != null) {
-                    asDouble.rounded(3).toString()
-                } else if (asBoolean != null) {
-                    asBoolean.toString()
-                } else {
-                    try {
-                        gsonWithRoundedDecimals.toJson(objectS)
-                    } catch (e: Exception) {
-                        Timber.e(e)
+                val value = if (objectS.value is JsonPrimitive) {
+                    val asStr = objectS.value?.asString
+                    val asInt = asStr?.toIntOrNull()
+                    val asDouble = asStr?.toDoubleOrNull()
+                    val asBoolean = asStr?.toBooleanStrictOrNull()
+                    if (asInt != null) {
+                        asInt.toString()
+                    } else if (asDouble != null) {
+                        asDouble.rounded(3).toString()
+                    } else if (asBoolean != null) {
+                        asBoolean.toString()
+                    } else {
                         asStr ?: "null"
                     }
-
+                } else {
+                    try {
+                        gsonWithRoundedDecimals.toJson(objectS.value)
+                    } catch (e: Exception) {
+                        Timber.e(e, "Unable to parse position fields using GSON: $objectS")
+                        objectS.toString()
+                    }
                 }
-
                 fields[KeyBaseKeyPair(key = objectS.key, baseKey = FieldKeys.Item.Annotation.position)] = value
             }
 

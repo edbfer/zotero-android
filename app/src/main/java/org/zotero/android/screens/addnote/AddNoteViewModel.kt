@@ -2,6 +2,7 @@ package org.zotero.android.screens.addnote
 
 import android.webkit.WebMessage
 import android.webkit.WebMessagePort
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -13,7 +14,12 @@ import org.zotero.android.architecture.BaseViewModel2
 import org.zotero.android.architecture.ScreenArguments
 import org.zotero.android.architecture.ViewEffect
 import org.zotero.android.architecture.ViewState
+import org.zotero.android.architecture.navigation.ARG_ADD_OR_EDIT_NOTE
+import org.zotero.android.architecture.navigation.NavigationParamsMarshaller
+import org.zotero.android.architecture.require
+import org.zotero.android.database.DbWrapperMain
 import org.zotero.android.database.objects.RCustomLibraryType
+import org.zotero.android.database.requests.ReadNoteDbRequest
 import org.zotero.android.screens.addnote.data.AddOrEditNoteArgs
 import org.zotero.android.screens.addnote.data.SaveNoteAction
 import org.zotero.android.screens.addnote.data.WebViewSendMessage
@@ -22,16 +28,31 @@ import org.zotero.android.screens.tagpicker.data.TagPickerArgs
 import org.zotero.android.screens.tagpicker.data.TagPickerResult
 import org.zotero.android.sync.LibraryIdentifier
 import org.zotero.android.sync.Tag
+import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 
 @HiltViewModel
 internal class AddNoteViewModel @Inject constructor(
     private val gson: Gson,
+    private val navigationParamsMarshaller: NavigationParamsMarshaller,
+    stateHandle: SavedStateHandle,
+    private val dbWrapperMain: DbWrapperMain,
 ) : BaseViewModel2<AddNoteViewState, AddNoteViewEffect>(AddNoteViewState()) {
 
     private lateinit var port: WebMessagePort
 
     private var isSaveDuringExit: Boolean = false
+
+    lateinit var initialText: String
+    lateinit var initialTags: List<Tag>
+
+    private val addOrEditNoteArgs: AddOrEditNoteArgs by lazy {
+        val argsEncoded = stateHandle.get<String>(ARG_ADD_OR_EDIT_NOTE).require()
+        navigationParamsMarshaller.decodeObjectFromBase64(
+            encodedJson = argsEncoded,
+            charset = StandardCharsets.UTF_8
+        )
+    }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onEvent(tagPickerResult: TagPickerResult) {
@@ -40,21 +61,25 @@ internal class AddNoteViewModel @Inject constructor(
                 updateState {
                     copy(tags = tagPickerResult.tags)
                 }
-//                triggerEffect(AddNoteViewEffect.RefreshUI)
             }
         }
     }
 
     fun init() = initOnce {
         EventBus.getDefault().register(this)
-        viewModelScope.launch {
-            val args = ScreenArguments.addOrEditNoteArgs
-            updateState {
-                copy(
-                    title = args.title,
-                    text = args.text,
-                    tags = args.tags
-                )
+
+        dbWrapperMain.realmDbStorage.perform {coordinatorAction ->
+            val note = ReadNoteDbRequest(addOrEditNoteArgs.key).process(coordinatorAction.realm)
+            initialText = note?.text ?: ""
+            initialTags = note?.tags ?: listOf()
+            viewModelScope.launch {
+                updateState {
+                    copy(
+                        title = this@AddNoteViewModel.addOrEditNoteArgs.title,
+                        text = this@AddNoteViewModel.initialText,
+                        tags = this@AddNoteViewModel.initialTags
+                    )
+                }
             }
         }
     }
@@ -132,19 +157,27 @@ internal class AddNoteViewModel @Inject constructor(
         updateState {
             copy(backHandlerInterceptionEnabled = false)
         }
-        this.port.postMessage(generateForceSaveMessage())
+        //Port might not be initialized by this point if user were to return to AddNoteScreen after a while, when app was loaded off memory and then very quickly tapped back button.
+        //We skip saving message in this case because note was saved before that, when user visited screen last time.
+        if (this::port.isInitialized) {
+            this.port.postMessage(generateForceSaveMessage())
+        } else {
+            triggerEffect(AddNoteViewEffect.NavigateBack)
+        }
     }
 
     private fun saveAndExit() {
-        val args = ScreenArguments.addOrEditNoteArgs
-        EventBus.getDefault().post(
-            SaveNoteAction(
-                text = viewState.text,
-                tags = viewState.tags,
-                key = args.key,
-                isFromDashboard = args.isFromDashboard
+        val text = viewState.text
+        if (initialText != text || initialTags != viewState.tags) {
+            EventBus.getDefault().post(
+                SaveNoteAction(
+                    text = text,
+                    tags = viewState.tags,
+                    key = addOrEditNoteArgs.key,
+                    isFromDashboard = addOrEditNoteArgs.isFromDashboard
+                )
             )
-        )
+        }
         triggerEffect(AddNoteViewEffect.NavigateBack)
     }
 }

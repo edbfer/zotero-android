@@ -1,58 +1,62 @@
 package org.zotero.android.pdf.annotation
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import org.zotero.android.architecture.ui.CustomLayoutSize
+import org.zotero.android.pdf.data.PDFAnnotation
+import org.zotero.android.sync.Tag
 import org.zotero.android.uicomponents.Strings
+import org.zotero.android.uicomponents.foundation.debounceClickable
 import org.zotero.android.uicomponents.textinput.CustomTextField
-import org.zotero.android.uicomponents.theme.CustomPalette
 import org.zotero.android.uicomponents.theme.CustomTheme
 
 @Composable
 internal fun CommentSection(
-    viewState: PdfAnnotationViewState,
     layoutType: CustomLayoutSize.LayoutType,
-    viewModel: PdfAnnotationViewModel
+    annotation: PDFAnnotation,
+    commentFocusText: String,
+    onCommentTextChange: (String) -> Unit,
 ) {
+    val enabled = annotation.isZoteroAnnotation
     CustomTextField(
         modifier = Modifier
             .padding(start = 8.dp),
-        value = viewState.commentFocusText,
+        value = commentFocusText,
         textStyle = CustomTheme.typography.default.copy(fontSize = layoutType.calculatePdfSidebarTextSize()),
-        hint = stringResource(id = Strings.pdf_annotations_sidebar_add_comment),
+        hint = if (enabled) {
+            stringResource(id = Strings.pdf_annotations_sidebar_add_comment)
+        } else {
+            stringResource(id = Strings.pdf_annotation_popover_no_comment)
+        },
         ignoreTabsAndCaretReturns = false,
         minLines = 5,
-        onValueChange = { viewModel.onCommentTextChange(it) })
+        enabled = enabled,
+        onValueChange = onCommentTextChange
+    )
 }
 
 @Composable
 internal fun TagsSection(
-    viewModel: PdfAnnotationViewModel,
-    viewState: PdfAnnotationViewState,
-    layoutType: CustomLayoutSize.LayoutType
+    layoutType: CustomLayoutSize.LayoutType,
+    tags: List<Tag>,
+    onTagsClicked: () -> Unit
 ) {
-    if (!viewState.tags.isEmpty()) {
+    if (!tags.isEmpty()) {
         Text(
             modifier = Modifier
                 .padding(start = 16.dp)
-                .clickable(
+                .debounceClickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = { viewModel.onTagsClicked() }
+                    onClick = onTagsClicked
                 ),
-            text = viewState.tags.joinToString(separator = ", ") { it.name },
+            text = tags.joinToString(separator = ", ") { it.name },
             color = CustomTheme.colors.primaryContent,
             style = CustomTheme.typography.default,
             fontSize = layoutType.calculatePdfSidebarTextSize(),
@@ -61,10 +65,10 @@ internal fun TagsSection(
         Text(
             modifier = Modifier
                 .padding(start = 8.dp)
-                .clickable(
+                .debounceClickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = { viewModel.onTagsClicked() }
+                    onClick = onTagsClicked
                 ),
             text = stringResource(id = Strings.pdf_annotations_sidebar_add_tags),
             color = CustomTheme.colors.zoteroDefaultBlue,
@@ -73,45 +77,3 @@ internal fun TagsSection(
         )
     }
 }
-
-@Composable
-internal fun ColorPicker(
-    viewState: PdfAnnotationViewState,
-    viewModel: PdfAnnotationViewModel
-) {
-    val selectedColor = viewState.color
-        FlowRow(
-            modifier = Modifier.padding(horizontal = 10.dp),
-        ) {
-            viewState.colors.forEach { listColorHex ->
-                FilterCircle(
-                    hex = listColorHex,
-                    isSelected = listColorHex == selectedColor,
-                    onClick = { viewModel.onColorSelected(listColorHex) })
-            }
-        }
-}
-
-@Composable
-private fun FilterCircle(hex: String, isSelected: Boolean, onClick: () -> Unit) {
-    val color = android.graphics.Color.parseColor(hex)
-    Canvas(modifier = Modifier
-        .padding(4.dp)
-        .size(32.dp)
-        .clickable(
-            interactionSource = remember { MutableInteractionSource() },
-            indication = null,
-            onClick = onClick
-        ), onDraw = {
-        drawCircle(color = Color(color))
-        if (isSelected) {
-            drawCircle(
-                color = CustomPalette.White,
-                radius = 12.dp.toPx(),
-                style = Stroke(width = 3.dp.toPx())
-            )
-        }
-    })
-}
-
-

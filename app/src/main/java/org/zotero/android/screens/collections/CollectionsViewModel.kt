@@ -1,5 +1,6 @@
 package org.zotero.android.screens.collections
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.realm.OrderedCollectionChangeSet
@@ -7,10 +8,11 @@ import io.realm.OrderedRealmCollectionChangeListener
 import io.realm.RealmModel
 import io.realm.RealmResults
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.PersistentList
+import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentListOf
-import kotlinx.collections.immutable.toImmutableList
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
+import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.toPersistentMap
 import kotlinx.coroutines.launch
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
@@ -21,13 +23,20 @@ import org.zotero.android.architecture.LCE2
 import org.zotero.android.architecture.ScreenArguments
 import org.zotero.android.architecture.ViewEffect
 import org.zotero.android.architecture.ViewState
-import org.zotero.android.architecture.coroutines.Dispatchers
 import org.zotero.android.architecture.ifFailure
-import org.zotero.android.database.DbWrapper
+import org.zotero.android.architecture.navigation.ARG_COLLECTIONS_SCREEN
+import org.zotero.android.architecture.navigation.NavigationParamsMarshaller
+import org.zotero.android.architecture.require
+import org.zotero.android.attachmentdownloader.AttachmentDownloader
+import org.zotero.android.database.DbWrapperMain
+import org.zotero.android.database.objects.Attachment
+import org.zotero.android.database.objects.Attachment.FileLinkType
 import org.zotero.android.database.objects.RCollection
 import org.zotero.android.database.objects.RCustomLibraryType
 import org.zotero.android.database.objects.RItem
+import org.zotero.android.database.requests.EmptyTrashDbRequest
 import org.zotero.android.database.requests.MarkObjectsAsDeletedDbRequest
+import org.zotero.android.database.requests.ReadAllAttachmentsFromCollectionDbRequest
 import org.zotero.android.database.requests.ReadCollectionDbRequest
 import org.zotero.android.database.requests.ReadCollectionsDbRequest
 import org.zotero.android.database.requests.ReadItemsDbRequest
@@ -35,46 +44,49 @@ import org.zotero.android.database.requests.ReadLibraryDbRequest
 import org.zotero.android.database.requests.SetCollectionCollapsedDbRequest
 import org.zotero.android.files.FileStore
 import org.zotero.android.screens.allitems.data.AllItemsArgs
+import org.zotero.android.screens.allitems.data.ItemsFilter
 import org.zotero.android.screens.collectionedit.data.CollectionEditArgs
+import org.zotero.android.screens.collections.controller.CollectionTreeController
+import org.zotero.android.screens.collections.controller.CollectionTreeControllerInterface
 import org.zotero.android.screens.collections.data.CollectionItemWithChildren
-import org.zotero.android.screens.collections.data.CollectionTree
-import org.zotero.android.screens.collections.data.CollectionTreeBuilder
 import org.zotero.android.screens.collections.data.CollectionsArgs
 import org.zotero.android.screens.collections.data.CollectionsError
 import org.zotero.android.screens.dashboard.data.ShowDashboardLongPressBottomSheet
+import org.zotero.android.screens.filter.data.FilterArgs
+import org.zotero.android.screens.filter.data.UpdateFiltersEvent
+import org.zotero.android.sync.AttachmentCreator
+import org.zotero.android.sync.AttachmentFileCleanupController
+import org.zotero.android.sync.AttachmentFileCleanupController.DeletionType
 import org.zotero.android.sync.Collection
 import org.zotero.android.sync.CollectionIdentifier
+import org.zotero.android.sync.CollectionIdentifier.CustomType
 import org.zotero.android.sync.Library
 import org.zotero.android.sync.LibraryIdentifier
 import org.zotero.android.uicomponents.bottomsheet.LongPressOptionItem
 import timber.log.Timber
-import java.util.concurrent.ConcurrentHashMap
+import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 import kotlin.reflect.KClass
 
 @HiltViewModel
 internal class CollectionsViewModel @Inject constructor(
     private val defaults: Defaults,
-    private val dbWrapper: DbWrapper,
+    private val dbWrapperMain: DbWrapperMain,
     private val fileStore: FileStore,
-    dispatchers: Dispatchers,
-) : BaseViewModel2<CollectionsViewState, CollectionsViewEffect>(CollectionsViewState()) {
+    private val fileCleanupController: AttachmentFileCleanupController,
+    private val attachmentDownloader: AttachmentDownloader,
+    private val navigationParamsMarshaller: NavigationParamsMarshaller,
+    private val collectionTreeController: CollectionTreeController,
+    stateHandle: SavedStateHandle,
+) : BaseViewModel2<CollectionsViewState, CollectionsViewEffect>(CollectionsViewState()), CollectionTreeControllerInterface {
 
-    var allItems: RealmResults<RItem>? = null
-    var unfiledItems: RealmResults<RItem>? = null
-    var trashItems: RealmResults<RItem>? = null
-    var collections: RealmResults<RCollection>? = null
+    private var allItems: RealmResults<RItem>? = null
+    private var unfiledItems: RealmResults<RItem>? = null
+    private var trashItems: RealmResults<RItem>? = null
+    private var collections: RealmResults<RCollection>? = null
 
-    var isTablet: Boolean = false
-
-    private var coroutineScope = CoroutineScope(dispatchers.default)
-    private var loadJob: Job? = null
-
-    private var collectionTree: CollectionTree = CollectionTree(
-        mutableListOf(),
-        ConcurrentHashMap(),
-        ConcurrentHashMap()
-    )
+    private var isTablet: Boolean = false
+    private var hasAlreadyShownList: Boolean = false
 
     private var libraryId: LibraryIdentifier = LibraryIdentifier.group(0)
     private var library: Library = Library(
@@ -83,36 +95,51 @@ internal class CollectionsViewModel @Inject constructor(
         metadataEditable = false,
         filesEditable = false
     )
+    private var itemsFilter: List<ItemsFilter> = emptyList()
 
+    val screenArgs: CollectionsArgs by lazy {
+        val argsEncoded = stateHandle.get<String>(ARG_COLLECTIONS_SCREEN).require()
+        navigationParamsMarshaller.decodeObjectFromBase64(argsEncoded, StandardCharsets.UTF_8)
+    }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onEvent(event: LongPressOptionItem) {
         onLongPressOptionsItemSelected(event)
     }
 
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onEvent(updateFiltersEvent: UpdateFiltersEvent) {
+        this.itemsFilter = updateFiltersEvent.itemsFilter
+    }
+
     fun init(isTablet: Boolean) = initOnce {
         EventBus.getDefault().register(this)
         this.isTablet = isTablet
+        initViewState(screenArgs)
+        collectionTreeController.init(
+            libraryId = this.libraryId,
+            isTablet = isTablet,
+            includeItemCounts = defaults.showCollectionItemCounts(),
+            collectionTreeControllerInterface = this
+        )
+        collectionTreeController.selectedCollectionId = viewState.selectedCollectionId
         viewModelScope.launch {
-            val args = ScreenArguments.collectionsArgs
-            initViewState(args)
             loadData()
         }
     }
 
-    private fun maybeRecreateItemsScreen(shouldRecreateItemsScreen: Boolean) {
-        if (shouldRecreateItemsScreen) {
-            val collectionTree = this.collectionTree
-            onItemTapped(collectionTree.collections[viewState.selectedCollectionId]!!)
+    private fun maybeRecreateItemsScreen() {
+        if (screenArgs.shouldRecreateItemsScreen) {
+            val collectionToTap =
+                viewState.fixedCollections.values.firstOrNull { it.identifier == viewState.selectedCollectionId }
+                    ?: collectionTreeController.getCollectionByCollectionId(viewState.selectedCollectionId)
+            if (collectionToTap != null) {
+                onItemTapped(collectionToTap)
+            }
         }
     }
 
     private fun initViewState(args: CollectionsArgs) {
-        this.collectionTree = CollectionTree(
-            nodes = mutableListOf(),
-            collections = ConcurrentHashMap(),
-            collapsed = ConcurrentHashMap()
-        )
         this.libraryId = args.libraryId
         this.library = Library(
             identifier = LibraryIdentifier.custom(RCustomLibraryType.myLibrary),
@@ -123,209 +150,148 @@ internal class CollectionsViewModel @Inject constructor(
 
         updateState {
             copy(
+                fixedCollections = persistentMapOf(
+                    CustomType.all to Collection.initWithCustomType(
+                        type = CustomType.all,
+                        itemCount = 0
+                    ), CustomType.unfiled to Collection.initWithCustomType(
+                        type = CustomType.unfiled,
+                        itemCount = 0
+                    ),
+                    CustomType.trash to Collection.initWithCustomType(
+                        type = CustomType.trash,
+                        itemCount = 0
+                    )
+                ),
                 selectedCollectionId = args.selectedCollectionId,
+                showCollectionItemCounts = defaults.showCollectionItemCounts()
             )
         }
 
-    }
-
-    private fun loadData() {
-        val libraryId = this.libraryId
-        val includeItemCounts = defaults.showCollectionItemCounts()
-
-        try {
-            dbWrapper.realmDbStorage.perform { coordinator ->
-                this.library =
-                    coordinator.perform(request = ReadLibraryDbRequest(libraryId = libraryId))
-                collections =
-                    coordinator.perform(request = ReadCollectionsDbRequest(libraryId = libraryId))
-                viewModelScope.launch {
-                    updateState {
-                        copy(
-                            libraryName = this@CollectionsViewModel.library.name,
-                            lce = LCE2.Content
-                        )
-                    }
-                }
-
-                var allItemCount = 0
-                var unfiledItemCount = 0
-                var trashItemCount = 0
-
-                if (includeItemCounts) {
-                    allItems = coordinator.perform(
-                        request = ReadItemsDbRequest(
-                            collectionId = CollectionIdentifier.custom(
-                                CollectionIdentifier.CustomType.all
-                            ),
-                            libraryId = libraryId,
-                            defaults = defaults,
-                            isAsync = false,
-                        )
-                    )
-                    allItemCount = allItems!!.size
-
-                    unfiledItems = coordinator.perform(
-                        request = ReadItemsDbRequest(
-                            collectionId = CollectionIdentifier.custom(
-                                CollectionIdentifier.CustomType.unfiled
-                            ),
-                            libraryId = libraryId,
-                            defaults = defaults,
-                            isAsync = false,
-                        )
-                    )
-                    unfiledItemCount = unfiledItems!!.size
-
-                    trashItems = coordinator.perform(
-                        request = ReadItemsDbRequest(
-                            collectionId = CollectionIdentifier.custom(
-                                CollectionIdentifier.CustomType.trash
-                            ),
-                            libraryId = libraryId,
-                            defaults = defaults,
-                            isAsync = false,
-                        )
-                    )
-                    trashItemCount = trashItems!!.size
-                    observeItemCount(
-                        results = allItems!!,
-                        customType = CollectionIdentifier.CustomType.all
-                    )
-                    observeItemCount(
-                        results = unfiledItems!!,
-                        customType = CollectionIdentifier.CustomType.unfiled
-                    )
-                    observeItemCount(
-                        results = trashItems!!,
-                        customType = CollectionIdentifier.CustomType.trash
-                    )
-                }
-                collections?.addChangeListener(OrderedRealmCollectionChangeListener<RealmResults<RCollection>> { objects, changeSet ->
-                    when (changeSet.state) {
-                        OrderedCollectionChangeSet.State.INITIAL -> {
-                            //no-op
-                        }
-
-                        OrderedCollectionChangeSet.State.UPDATE -> {
-                            update(collections = objects, includeItemCounts = includeItemCounts)
-                        }
-
-                        OrderedCollectionChangeSet.State.ERROR -> {
-                            Timber.e(
-                                changeSet.error,
-                                "CollectionsViewModel: could not load results"
-                            )
-                        }
-
-                        else -> {
-                            //no-op
-                        }
-                    }
-                })
-                val frozenCollections = collections!!.freeze()
-                loadJob = coroutineScope.launch {
-
-                    val collectionTree = CollectionTreeBuilder.collections(
-                        rCollections = frozenCollections,
-                        libraryId = libraryId,
-                        includeItemCounts = includeItemCounts
-                    )
-
-                    collectionTree.sortNodes()
-
-                    collectionTree.insert(
-                        collection = Collection.initWithCustomType(
-                            type = CollectionIdentifier.CustomType.all,
-                            itemCount = allItemCount
-                        ), index = 0
-                    )
-                    collectionTree.append(
-                        collection = Collection.initWithCustomType(
-                            type = CollectionIdentifier.CustomType.unfiled,
-                            itemCount = unfiledItemCount
-                        )
-                    )
-                    collectionTree.append(
-                        collection = Collection.initWithCustomType(
-                            type = CollectionIdentifier.CustomType.trash,
-                            itemCount = trashItemCount
-                        )
-                    )
-                    val snapshot = collectionTree.createSnapshot()
-                    viewModelScope.launch {
-                        updateCollectionTree(collectionTree, snapshot)
-                        maybeRecreateItemsScreen(ScreenArguments.collectionsArgs.shouldRecreateItemsScreen)
-                    }
-
-                }
-            }
-        } catch (error: Exception) {
-            Timber.e(error, "CollectionsActionHandlers: can't load data")
+        if (isTablet) {
             updateState {
-                copy(error = CollectionsError.dataLoading)
+                copy(tabletFilterArgs = createShowFilterArgs())
             }
         }
+
     }
 
-    private fun updateCollectionTree(
-        collectionTree: CollectionTree,
-        snapshot: List<CollectionItemWithChildren>
-    ) {
-        this.collectionTree = collectionTree
-        updateState {
-            copy(
-                collectionItemsToDisplay = snapshot.toImmutableList()
+    private suspend fun loadData() {
+        this@CollectionsViewModel.library =
+            perform(
+                dbWrapper = dbWrapperMain,
+                invalidateRealm = false,
+                request = ReadLibraryDbRequest(libraryId = libraryId)
+            ).ifFailure {
+                Timber.e(it, "CollectionsActionHandler: can't change collapsed")
+                return
+            }
+
+        initRequestAndStartObservingCollectionResults()
+
+        if (viewState.showCollectionItemCounts) {
+            maybeInitRequestAndStartObservingAllItemsCount()
+            maybeInitRequestAndStartObservingUnfiledItemsCount()
+            maybeInitRequestAndStartObservingTrashItemsCount()
+        }
+    }
+
+    private fun initRequestAndStartObservingCollectionResults() {
+        collections = dbWrapperMain.realmDbStorage.perform(
+            ReadCollectionsDbRequest(
+                libraryId = libraryId,
+                isAsync = true
             )
-        }
-        expandCollectionsIfNeeded()
-        triggerEffect(CollectionsViewEffect.ScreenRefresh)
-    }
-
-    private fun expandCollectionsIfNeeded() {
-        if (!isTablet) {
-            return
-        }
-        val listOfParentsToExpand = traverseCollectionTreeForSelectedCollection(
-            items = viewState.collectionItemsToDisplay,
-            listOfParents = listOf()
         )
-        for (parent in listOfParentsToExpand.second) {
-            this.collectionTree.set(false, parent)
-        }
-    }
-
-    private fun traverseCollectionTreeForSelectedCollection(
-        items: List<CollectionItemWithChildren>,
-        listOfParents: List<CollectionIdentifier>
-    ): Pair<Boolean, List<CollectionIdentifier>> {
-        for (item in items) {
-            if (item.collection.identifier == viewState.selectedCollectionId) {
-                return true to listOfParents
-            }
-            val traverseResult = traverseCollectionTreeForSelectedCollection(
-                items = item.children,
-                listOfParents = listOfParents + item.collection.identifier
-            )
-            if (traverseResult.first) {
-                return traverseResult
-            }
-        }
-        return false to emptyList()
-    }
-
-    private fun observeItemCount(
-        results: RealmResults<RItem>,
-        customType: CollectionIdentifier.CustomType
-    ) {
-        results.addChangeListener(OrderedRealmCollectionChangeListener<RealmResults<RItem>> { items, changeSet ->
+        collections?.addChangeListener(OrderedRealmCollectionChangeListener<RealmResults<RCollection>> { objects, changeSet ->
             when (changeSet.state) {
                 OrderedCollectionChangeSet.State.INITIAL -> {
-                    //no-op
+                    collectionTreeController.reactToCollectionsDbUpdate(
+                        collections = objects,
+                        changeSet = changeSet,
+                    )
                 }
 
                 OrderedCollectionChangeSet.State.UPDATE -> {
-                    update(itemsCount = items.size, customType = customType)
+                    collectionTreeController.reactToCollectionsDbUpdate(
+                        collections = objects,
+                        changeSet = changeSet,
+                    )
+                }
+
+                OrderedCollectionChangeSet.State.ERROR -> {
+                    Timber.e(
+                        changeSet.error,
+                        "CollectionsViewModel: could not load results"
+                    )
+                }
+            }
+        })
+    }
+
+    private fun maybeInitRequestAndStartObservingAllItemsCount() {
+        allItems = dbWrapperMain.realmDbStorage.perform(
+            request = ReadItemsDbRequest(
+                collectionId = CollectionIdentifier.custom(
+                    CustomType.all
+                ),
+                libraryId = libraryId,
+                defaults = defaults,
+                isAsync = true,
+            )
+        )
+        observeItemCount(
+            results = allItems,
+            customType = CustomType.all
+        )
+    }
+    private fun maybeInitRequestAndStartObservingUnfiledItemsCount() {
+        unfiledItems = dbWrapperMain.realmDbStorage.perform(
+            request = ReadItemsDbRequest(
+                collectionId = CollectionIdentifier.custom(
+                    CustomType.unfiled
+                ),
+                libraryId = libraryId,
+                defaults = defaults,
+                isAsync = true,
+            )
+        )
+        observeItemCount(
+            results = unfiledItems,
+            customType = CustomType.unfiled
+        )
+    }
+
+    private fun maybeInitRequestAndStartObservingTrashItemsCount() {
+        trashItems = dbWrapperMain.realmDbStorage.perform(
+            request = ReadItemsDbRequest(
+                collectionId = CollectionIdentifier.custom(
+                    CustomType.trash
+                ),
+                libraryId = libraryId,
+                defaults = defaults,
+                isAsync = true,
+            )
+        )
+
+        observeItemCount(
+            results = trashItems,
+            customType = CustomType.trash
+        )
+    }
+
+    private fun observeItemCount(
+        results: RealmResults<RItem>?,
+        customType: CustomType
+    ) {
+        results?.addChangeListener(OrderedRealmCollectionChangeListener<RealmResults<RItem>> { items, changeSet ->
+            when (changeSet.state) {
+                OrderedCollectionChangeSet.State.INITIAL -> {
+                    reactToItemsCountDbUpdate(itemsCount = items.size, customType = customType)
+                }
+
+                OrderedCollectionChangeSet.State.UPDATE -> {
+                    reactToItemsCountDbUpdate(itemsCount = items.size, customType = customType)
                 }
 
                 OrderedCollectionChangeSet.State.ERROR -> {
@@ -339,58 +305,45 @@ internal class CollectionsViewModel @Inject constructor(
         })
     }
 
-    private fun update(itemsCount: Int, customType: CollectionIdentifier.CustomType) {
-        val collectionTree = this.collectionTree
-        collectionTree.update(
-            collection = Collection.initWithCustomType(
-                type = customType,
-                itemCount = itemsCount
-            )
+    private fun reactToItemsCountDbUpdate(itemsCount: Int, customType: CustomType) {
+        val fixedCollection = Collection.initWithCustomType(
+            type = customType,
+            itemCount = itemsCount
         )
-        updateCollectionTree(collectionTree, collectionTree.createSnapshot())
-    }
-
-    private fun update(collections: RealmResults<RCollection>, includeItemCounts: Boolean) {
-        val tree = CollectionTreeBuilder.collections(
-            collections,
-            libraryId = this.libraryId,
-            includeItemCounts = includeItemCounts
-        )
-        tree.sortNodes()
-        val collectionTree = this.collectionTree
-        collectionTree.replace(matching = { it.isCollection }, tree = tree)
-        updateCollectionTree(collectionTree, collectionTree.createSnapshot())
-
-        if (this.collectionTree.collection(viewState.selectedCollectionId) == null) {
-            val collection =
-                collectionTree.collections[CollectionIdentifier.custom(CollectionIdentifier.CustomType.all)]!!
-            onItemTapped(collection)
-        }
-//        triggerEffect(CollectionsViewEffect.ScreenRefresh)
-    }
-
-    fun onItemTapped(collection: Collection) {
         updateState {
-            copy(selectedCollectionId = collection.identifier)
+            copy(fixedCollections = (viewState.fixedCollections + (customType to fixedCollection)).toPersistentMap())
         }
-        fileStore.setSelectedCollectionId(collection.identifier)
-        ScreenArguments.allItemsArgs = AllItemsArgs(
-            collection = collection,
-            library = this.library,
-            searchTerm = null,
-            error = null
-        )
-        triggerEffect(CollectionsViewEffect.NavigateToAllItemsScreen)
+    }
+
+    override fun onItemTapped(collection: Collection) {
+        viewModelScope.launch {
+            updateState {
+                copy(selectedCollectionId = collection.identifier)
+            }
+            collectionTreeController.selectedCollectionId = viewState.selectedCollectionId
+            fileStore.setSelectedCollectionIdAsync(collection.identifier)
+            ScreenArguments.allItemsArgs = AllItemsArgs(
+                collection = collection,
+                library = this@CollectionsViewModel.library,
+                searchTerm = null,
+                error = null
+            )
+            val collectionsArgs = CollectionsArgs(
+                libraryId = this@CollectionsViewModel.libraryId,
+                selectedCollectionId = collection.identifier,
+                shouldRecreateItemsScreen = this@CollectionsViewModel.isTablet
+            )
+            val encodedArgs = navigationParamsMarshaller.encodeObjectToBase64Async(collectionsArgs, StandardCharsets.UTF_8)
+            triggerEffect(CollectionsViewEffect.NavigateToAllItemsScreen(encodedArgs))
+        }
     }
 
     fun onItemChevronTapped(collection: Collection) {
-        val tree = this.collectionTree
         val libraryId = this.libraryId
-        val collapsed = tree.collapsed[collection.identifier] ?: return
-        tree.set(
+        val collapsed = viewState.collapsed[collection.identifier] ?: return
+        collectionTreeController.setCollapsed(
             collapsed = !collapsed, collection.identifier
         )
-        this.collectionTree = tree
 
         val request = SetCollectionCollapsedDbRequest(
             collapsed = !collapsed,
@@ -398,17 +351,16 @@ internal class CollectionsViewModel @Inject constructor(
             libraryId = libraryId
         )
         viewModelScope.launch {
-            perform(dbWrapper, request)
+            perform(dbWrapperMain, request)
                 .ifFailure {
                     Timber.e(it, "CollectionsActionHandler: can't change collapsed")
                     return@launch
                 }
         }
-        triggerEffect(CollectionsViewEffect.ScreenRefresh)
     }
 
     override fun onCleared() {
-        loadJob?.cancel()
+        collectionTreeController.cancel()
         EventBus.getDefault().unregister(this)
         allItems?.removeAllChangeListeners()
         unfiledItems?.removeAllChangeListeners()
@@ -428,26 +380,52 @@ internal class CollectionsViewModel @Inject constructor(
     }
 
     fun onItemLongTapped(collection: Collection) {
-        if (!this.library.metadataEditable) {
-            return
-        }
         val actions = mutableListOf<LongPressOptionItem>()
 
         when (collection.identifier) {
             is CollectionIdentifier.collection -> {
-                actions.add(LongPressOptionItem.CollectionEdit(collection))
-                actions.add(LongPressOptionItem.CollectionNewSubCollection(collection))
-                actions.add(LongPressOptionItem.CollectionDelete(collection))
+                if (this.library.metadataEditable) {
+                    actions.add(LongPressOptionItem.CollectionEdit(collection))
+                    actions.add(LongPressOptionItem.CollectionNewSubCollection(collection))
+                    actions.add(LongPressOptionItem.CollectionDelete(collection))
+
+                    if (collection.itemCount > 0) {
+                        actions.addAll(
+                            0,
+                            listOf(
+                                LongPressOptionItem.CollectionDownloadAttachments(collection.identifier),
+                                LongPressOptionItem.CollectionRemoveDownloads(collection.identifier)
+                            )
+                        )
+                    }
+                }
             }
 
-            is CollectionIdentifier.custom -> {
-                //TODO
-                return
+            is CollectionIdentifier.custom -> run {
+                if (collection.itemCount <= 0) {
+                    return@run
+                }
+                actions.add(LongPressOptionItem.CollectionRemoveDownloads(collection.identifier))
+                val type = collection.identifier.type
+                when(type) {
+                    CustomType.trash -> {
+                        if (this.library.metadataEditable) {
+                            actions.add(LongPressOptionItem.CollectionEmptyTrash)
+                        }
+                    }
+
+                    CustomType.publications, CustomType.all, CustomType.unfiled -> {
+                        actions.add(0, LongPressOptionItem.CollectionDownloadAttachments(collection.identifier))
+                    }
+                }
             }
 
             is CollectionIdentifier.search -> {
-                return
+                //no-op
             }
+        }
+        if (actions.isEmpty()) {
+            return
         }
         EventBus.getDefault().post(
             ShowDashboardLongPressBottomSheet(
@@ -455,7 +433,6 @@ internal class CollectionsViewModel @Inject constructor(
                 longPressOptionItems = actions
             )
         )
-
     }
 
     private fun onLongPressOptionsItemSelected(longPressOptionItem: LongPressOptionItem) {
@@ -463,6 +440,10 @@ internal class CollectionsViewModel @Inject constructor(
             when (longPressOptionItem) {
                 is LongPressOptionItem.CollectionEdit -> {
                     onEdit(longPressOptionItem.collection)
+                }
+
+                is LongPressOptionItem.CollectionRemoveDownloads -> {
+                    removeDownloads(longPressOptionItem.collectionId)
                 }
 
                 is LongPressOptionItem.CollectionNewSubCollection -> {
@@ -476,10 +457,97 @@ internal class CollectionsViewModel @Inject constructor(
                     )
                 }
 
+                is LongPressOptionItem.CollectionEmptyTrash -> {
+                    emptyTrash()
+                }
+
+                is LongPressOptionItem.CollectionDownloadAttachments -> {
+                    downloadAttachments(longPressOptionItem.collectionId)
+                }
+
                 else -> {
                     //no-op
                 }
             }
+        }
+    }
+
+    private fun downloadAttachments(collectionId: CollectionIdentifier) {
+        try {
+            val items = dbWrapperMain.realmDbStorage.perform(
+                request = ReadAllAttachmentsFromCollectionDbRequest(
+                    collectionId = collectionId,
+                    libraryId = this.library.identifier,
+                    defaults = this.defaults
+                ),
+            )
+            val attachments = items.mapNotNull { item ->
+                val attachment = AttachmentCreator.attachment(
+                    item,
+                    fileStorage = this.fileStore,
+                    defaults = this.defaults,
+                    urlDetector = null,
+                    isForceRemote = false
+                ) ?: return@mapNotNull null
+
+                when (attachment.type) {
+                    is Attachment.Kind.file -> {
+                        val linkType = attachment.type.linkType
+                        when (linkType) {
+                            FileLinkType.importedFile, FileLinkType.importedUrl -> {
+                                return@mapNotNull attachment to item.parent?.key
+                            }
+                            else -> {
+                                //no-op
+                            }
+
+                        }
+                    }
+
+                    else -> {
+                        //no-op
+                    }
+                }
+                return@mapNotNull null
+            }
+            this.attachmentDownloader.batchDownload(
+                attachments = attachments
+            )
+        } catch (error: Exception) {
+            Timber.e(error, "CollectionsViewModel: download attachments")
+        }
+
+    }
+
+    private fun emptyTrash() {
+        viewModelScope.launch {
+            perform(
+                dbWrapper = dbWrapperMain,
+                request = EmptyTrashDbRequest(libraryId = this@CollectionsViewModel.library.identifier)
+            ).ifFailure {
+                Timber.e(it, "CollectionsActionHandler: can't empty trash")
+                return@launch
+            }
+        }
+    }
+
+    private fun removeDownloads(collectionId: CollectionIdentifier) {
+        try {
+            val items = dbWrapperMain.realmDbStorage.perform(
+                request = ReadItemsDbRequest(
+                    collectionId = collectionId,
+                    libraryId = this.libraryId,
+                    defaults = this.defaults,
+                    isAsync = false
+                )
+            )
+            val keys = items.map { it.key }.toSet()
+            fileCleanupController.delete(
+                type = DeletionType.allForItems(keys, this.libraryId, collectionId),
+                completed = null,
+            )
+        } catch (exception: Exception) {
+            Timber.e(exception, "CollectionsViewModel: remove downloads")
         }
     }
 
@@ -490,7 +558,7 @@ internal class CollectionsViewModel @Inject constructor(
             libraryId = this.library.identifier
         )
         perform(
-            dbWrapper = dbWrapper,
+            dbWrapper = dbWrapperMain,
             request = request
         ).ifFailure {
             Timber.e(it, "CollectionsActionHandler: can't delete object")
@@ -502,12 +570,12 @@ internal class CollectionsViewModel @Inject constructor(
     }
 
     private fun onEdit(collection: Collection) {
-        val parentKey = this.collectionTree.parent(collection.identifier)?.keyGet
+        val parentKey = collectionTreeController.parentNode(collection.identifier)?.collection?.identifier?.keyGet
         val parent: Collection?
         if (parentKey != null) {
             val request =
                 ReadCollectionDbRequest(libraryId = this.library.identifier, key = parentKey)
-            val rCollection = dbWrapper.realmDbStorage.perform(request = request)
+            val rCollection = dbWrapperMain.realmDbStorage.perform(request = request)
             parent = Collection.initWithCollection(objectS = rCollection, itemCount = 0)
         } else {
             parent = null
@@ -532,19 +600,52 @@ internal class CollectionsViewModel @Inject constructor(
     }
 
     fun navigateToLibraries() {
-        ScreenArguments.collectionsArgs = CollectionsArgs(
-            libraryId = fileStore.getSelectedLibrary(),
-            fileStore.getSelectedCollectionId()
+        viewModelScope.launch {
+            val collectionsArgs = CollectionsArgs(
+                libraryId = fileStore.getSelectedLibraryAsync(),
+                fileStore.getSelectedCollectionIdAsync()
+            )
+            val encodedArgs = navigationParamsMarshaller.encodeObjectToBase64(collectionsArgs, StandardCharsets.UTF_8)
+            triggerEffect(CollectionsViewEffect.NavigateToLibrariesScreen(encodedArgs))
+        }
+    }
+
+    private fun createShowFilterArgs(): FilterArgs {
+        val selectedTags =
+            itemsFilter.filterIsInstance<ItemsFilter.tags>().flatMap { it.tags }.toSet()
+        val filterArgs = FilterArgs(
+            filters = itemsFilter,
+            collectionId = viewState.selectedCollectionId,
+            libraryId = this.library.identifier,
+            selectedTags = selectedTags
         )
-        triggerEffect(CollectionsViewEffect.NavigateToLibrariesScreen)
+        return filterArgs
     }
 
-    fun isCollapsed(snapshot: CollectionItemWithChildren): Boolean {
-        return collectionTree.collapsed[snapshot.collection.identifier]!!
-    }
-
-    fun showCollectionItemCounts(): Boolean {
-        return defaults.showCollectionItemCounts()
+    override fun sendChangesToUi(
+        updatedItemsWithChildren: PersistentList<CollectionItemWithChildren>?,
+        updatedCollapsed: PersistentMap<CollectionIdentifier, Boolean>?
+    ) {
+        viewModelScope.launch {
+            updateState {
+                copy(
+                    collectionItemsToDisplay = updatedItemsWithChildren
+                        ?: viewState.collectionItemsToDisplay,
+                    collapsed = updatedCollapsed
+                        ?: viewState.collapsed,
+                )
+            }
+            if (!hasAlreadyShownList) {
+                hasAlreadyShownList = true
+                updateState {
+                    copy(
+                        libraryName = this@CollectionsViewModel.library.name,
+                        lce = LCE2.Content
+                    )
+                }
+                maybeRecreateItemsScreen()
+            }
+        }
     }
 
 }
@@ -552,19 +653,26 @@ internal class CollectionsViewModel @Inject constructor(
 internal data class CollectionsViewState(
     val libraryName: String = "",
     val collectionItemsToDisplay: ImmutableList<CollectionItemWithChildren> = persistentListOf(),
+    val collapsed: PersistentMap<CollectionIdentifier, Boolean> = persistentMapOf(),
     val selectedCollectionId: CollectionIdentifier = CollectionIdentifier.custom(
-        CollectionIdentifier.CustomType.all
+        CustomType.all
     ),
     val editingData: Triple<String?, String, Collection?>? = null,
     val error: CollectionsError? = null,
     val lce: LCE2 = LCE2.Loading,
-) : ViewState {
+    val tabletFilterArgs: FilterArgs? = null,
+    val showCollectionItemCounts: Boolean = false,
+
+    val fixedCollections: PersistentMap<CustomType, Collection> = persistentMapOf(),
+    ) : ViewState {
+    fun isCollapsed(snapshot: CollectionItemWithChildren): Boolean {
+       return collapsed[snapshot.collection.identifier] != false
+    }
 }
 
 internal sealed class CollectionsViewEffect : ViewEffect {
     object NavigateBack : CollectionsViewEffect()
-    object NavigateToAllItemsScreen : CollectionsViewEffect()
-    object NavigateToLibrariesScreen : CollectionsViewEffect()
+    data class NavigateToAllItemsScreen(val screenArgs: String) : CollectionsViewEffect()
+    data class NavigateToLibrariesScreen(val screenArgs: String) : CollectionsViewEffect()
     object ShowCollectionEditEffect : CollectionsViewEffect()
-    object ScreenRefresh : CollectionsViewEffect()
 }

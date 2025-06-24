@@ -2,6 +2,7 @@ package org.zotero.android.pdf.reader
 
 import android.net.Uri
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.rememberSplineBasedDecay
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.AnchoredDraggableState
@@ -12,13 +13,13 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Icon
 import androidx.compose.runtime.Composable
@@ -55,31 +56,43 @@ private val pdfReaderToolsList = listOf(
     PdfReaderTool(
         type = AnnotationTool.HIGHLIGHT,
         title = Strings.pdf_annotation_toolbar_highlight,
-        image = Drawables.highlighter_large,
+        image = Drawables.annotate_highlight,
+        isHidden = false
+    ),
+    PdfReaderTool(
+        type = AnnotationTool.UNDERLINE,
+        title = Strings.pdf_annotation_toolbar_underline,
+        image = Drawables.annotate_underline,
         isHidden = false
     ),
     PdfReaderTool(
         type = AnnotationTool.NOTE,
         title = Strings.pdf_annotation_toolbar_note,
-        image = Drawables.note_large,
+        image = Drawables.annotate_note,
+        isHidden = false
+    ),
+    PdfReaderTool(
+        type = AnnotationTool.FREETEXT,
+        title = Strings.pdf_annotation_toolbar_text,
+        image = Drawables.annotate_text,
         isHidden = false
     ),
     PdfReaderTool(
         type = AnnotationTool.SQUARE,
         title = Strings.pdf_annotation_toolbar_image,
-        image = Drawables.area_large,
+        image = Drawables.annotate_area,
         isHidden = false
     ),
     PdfReaderTool(
         type = AnnotationTool.INK,
         title = Strings.pdf_annotation_toolbar_ink,
-        image = Drawables.ink_large,
+        image = Drawables.annotate_ink,
         isHidden = false
     ),
     PdfReaderTool(
         type = AnnotationTool.ERASER,
         title = Strings.pdf_annotation_toolbar_eraser,
-        image = Drawables.eraser_large,
+        image = Drawables.annotate_eraser,
         isHidden = false
     )
 )
@@ -87,7 +100,7 @@ private val pdfReaderToolsList = listOf(
 @Composable
 internal fun PdfReaderPspdfKitBox(
     uri: Uri,
-    viewModel: PdfReaderViewModel,
+    vMInterface: PdfReaderVMInterface,
     viewState: PdfReaderViewState
 ) {
     val density = LocalDensity.current
@@ -100,19 +113,22 @@ internal fun PdfReaderPspdfKitBox(
         shouldShowSnapTargetAreas = false
         true
     }
+    val decayAnimationSpec = rememberSplineBasedDecay<Float>()
     val anchoredDraggableState = rememberSaveable(
         saver = AnchoredDraggableState.Saver(
-            animationSpec = animationSpec,
+            snapAnimationSpec = animationSpec,
             positionalThreshold = positionalThreshold,
             velocityThreshold = velocityThreshold,
             confirmValueChange = confirmValueChange,
+            decayAnimationSpec = decayAnimationSpec
         )
     ) {
         AnchoredDraggableState(
             initialValue = DragAnchors.Start,
             positionalThreshold = positionalThreshold,
             velocityThreshold = velocityThreshold,
-            animationSpec = animationSpec,
+            snapAnimationSpec = animationSpec,
+            decayAnimationSpec =  decayAnimationSpec,
             confirmValueChange = confirmValueChange,
         )
     }
@@ -133,11 +149,11 @@ internal fun PdfReaderPspdfKitBox(
                 )
             }
     ) {
-        PdfReaderPspdfKitView(uri = uri, viewModel = viewModel)
+        PdfReaderPspdfKitView(uri = uri, vMInterface = vMInterface)
         if (viewState.showCreationToolbar) {
             PdfReaderAnnotationCreationToolbar(
-                viewModel = viewModel,
                 viewState = viewState,
+                vMInterface = vMInterface,
                 state = anchoredDraggableState,
                 onShowSnapTargetAreas = { shouldShowSnapTargetAreas = true },
                 shouldShowSnapTargetAreas = shouldShowSnapTargetAreas
@@ -153,8 +169,8 @@ enum class DragAnchors(val fraction: Float) {
 
 @Composable
 fun BoxScope.PdfReaderAnnotationCreationToolbar(
-    viewModel: PdfReaderViewModel,
     viewState: PdfReaderViewState,
+    vMInterface: PdfReaderVMInterface,
     state: AnchoredDraggableState<DragAnchors>,
     onShowSnapTargetAreas: () -> Unit,
     shouldShowSnapTargetAreas: Boolean,
@@ -162,7 +178,7 @@ fun BoxScope.PdfReaderAnnotationCreationToolbar(
     val roundCornerShape = RoundedCornerShape(size = 4.dp)
     val draggableInteractionSource = remember { MutableInteractionSource() }
     val coroutineScope = rememberCoroutineScope()
-    LaunchedEffect(key1 = viewModel) {
+    LaunchedEffect(key1 = vMInterface) {
         draggableInteractionSource.interactions.onEach {
             onShowSnapTargetAreas()
         }.launchIn(coroutineScope)
@@ -204,7 +220,7 @@ fun BoxScope.PdfReaderAnnotationCreationToolbar(
         )
     }
 
-    Box(
+    LazyColumn(
         modifier = Modifier
             .offset {
                 IntOffset(
@@ -219,7 +235,7 @@ fun BoxScope.PdfReaderAnnotationCreationToolbar(
                 orientation = Orientation.Horizontal,
                 interactionSource = draggableInteractionSource
             )
-            .height(500.dp)
+            .height(580.dp)
             .padding(start = 20.dp, top = 20.dp)
             .background(
                 color = CustomTheme.colors.pdfToolbarBackgroundColor,
@@ -227,64 +243,61 @@ fun BoxScope.PdfReaderAnnotationCreationToolbar(
             )
             .clip(roundCornerShape)
     ) {
-        Column(modifier = Modifier)
-        {
+        item {
             Spacer(modifier = Modifier.height(20.dp))
             pdfReaderToolsList.forEach { tool ->
                 if (!tool.isHidden) {
                     AnnotationCreationToggleButton(
-                        viewModel = viewModel,
+                        activeAnnotationTool = vMInterface.activeAnnotationTool,
                         pdfReaderTool = tool,
-                        toggleButton = viewModel::toggle
+                        toggleButton = vMInterface::toggle
                     )
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(15.dp))
                 }
             }
-            val activeAnnotationTool = viewModel.activeAnnotationTool
+            val activeAnnotationTool = vMInterface.activeAnnotationTool
             if (viewState.isColorPickerButtonVisible && activeAnnotationTool != null) {
                 if (activeAnnotationTool == AnnotationTool.ERASER) {
-                    EmptyFilterCircle(onClick = { viewModel.showToolOptions() })
+                    EmptyFilterCircle(onClick = vMInterface::showToolOptions)
                 } else {
-                    val color = viewModel.toolColors[activeAnnotationTool]
+                    val color = vMInterface.toolColors[activeAnnotationTool]
                     if (color != null) {
-                        FilledFilterCircle(hex = color, onClick = { viewModel.showToolOptions() })
+                        FilledFilterCircle(hex = color, onClick = vMInterface::showToolOptions)
                     }
                 }
             }
-        }
 
-        Column(
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
+            Spacer(modifier = Modifier.height(60.dp))
+
             AnnotationCreationButton(
-                isEnabled = viewModel.canUndo(),
+                isEnabled = vMInterface.canUndo(),
                 iconInt = Drawables.undo_24px,
-                onButtonClick = viewModel::onUndoClick
+                onButtonClick = vMInterface::onUndoClick
             )
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(15.dp))
             AnnotationCreationButton(
-                isEnabled = viewModel.canRedo(),
+                isEnabled = vMInterface.canRedo(),
                 iconInt = Drawables.redo_24px,
-                onButtonClick = viewModel::onRedoClick
+                onButtonClick = vMInterface::onRedoClick
             )
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(15.dp))
             AnnotationCreationButton(
                 isEnabled = true,
                 iconInt = Drawables.cancel_24px,
-                onButtonClick = viewModel::onCloseClick
+                onButtonClick = vMInterface::onCloseClick
             )
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(15.dp))
         }
     }
 }
 
 @Composable
 private fun AnnotationCreationToggleButton(
-    viewModel: PdfReaderViewModel,
+    activeAnnotationTool: AnnotationTool?,
     pdfReaderTool: PdfReaderTool,
     toggleButton: (AnnotationTool) -> Unit
 ) {
-    val isSelected = viewModel.activeAnnotationTool == pdfReaderTool.type
+    val isSelected = activeAnnotationTool == pdfReaderTool.type
     val tintColor = if (isSelected) {
         Color.White
     } else {

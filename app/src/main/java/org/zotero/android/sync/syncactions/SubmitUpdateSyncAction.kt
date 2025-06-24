@@ -73,7 +73,7 @@ class SubmitUpdateSyncAction(
             this.sinceVersion?.let {
                 headers.put("If-Unmodified-Since-Version", it.toString())
             }
-            syncApi.updates(url = url, jsonBody = jsonBody, headers = headers)
+            zoteroApi.updates(url = url, jsonBody = jsonBody, headers = headers)
         }
 
         if (networkResult !is CustomResult.GeneralSuccess) {
@@ -111,7 +111,7 @@ class SubmitUpdateSyncAction(
                     )
                 )
             }
-            dbWrapper.realmDbStorage.perform(requests)
+            dbWrapperMain.realmDbStorage.perform(requests)
             return CustomResult.GeneralSuccess(newVersion to null)
         } catch (error: Exception) {
             Timber.e(error)
@@ -142,7 +142,7 @@ class SubmitUpdateSyncAction(
             this.sinceVersion?.let {
                 headers.put("If-Unmodified-Since-Version", it.toString())
             }
-            syncApi.updates(url = url, jsonBody = jsonBody, headers = headers)
+            zoteroApi.updates(url = url, jsonBody = jsonBody, headers = headers)
         }
 
         if (networkResult !is CustomResult.GeneralSuccess) {
@@ -190,7 +190,7 @@ class SubmitUpdateSyncAction(
 
         if (!requests.isEmpty()) {
             try {
-                dbWrapper.realmDbStorage.perform(requests)
+                dbWrapperMain.realmDbStorage.perform(requests)
             } catch (e: Exception) {
                 Timber.e(e, "SubmitUpdateSyncAction: can't store local changes")
                 return CustomResult.GeneralSuccess(
@@ -385,7 +385,7 @@ class SubmitUpdateSyncAction(
             Timber.w("SubmitUpdateSyncAction: annotations too long: ${splitKeys} in ${libraryId}")
 
             try {
-                dbWrapper.realmDbStorage.perform(
+                dbWrapperMain.realmDbStorage.perform(
                     request = SplitAnnotationsDbRequest(
                         keys = splitKeys,
                         libraryId = libraryId

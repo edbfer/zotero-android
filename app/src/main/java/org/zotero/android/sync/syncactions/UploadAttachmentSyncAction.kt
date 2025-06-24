@@ -19,6 +19,7 @@ import org.zotero.android.sync.SyncActionError
 import org.zotero.android.sync.SyncObject
 import org.zotero.android.sync.syncactions.architecture.SyncAction
 import org.zotero.android.sync.syncactions.data.AuthorizeUploadResponse
+import org.zotero.android.webdav.data.WebDavUploadResult
 import timber.log.Timber
 import java.io.File
 
@@ -38,12 +39,16 @@ class UploadAttachmentSyncAction(
         try {
             when (this.libraryId) {
                 is LibraryIdentifier.custom ->
-                    //TODO implement WebDav
-                   return zoteroResult()
+                    return if (sessionStorage.isEnabled) {
+                        webDavResult()
+                    } else {
+                        zoteroResult()
+                    }
+
                 is LibraryIdentifier.group ->
                     return zoteroResult()
             }
-        } catch (e :Exception) {
+        } catch (e: Exception) {
             return CustomResult.GeneralError.CodeError(e)
         }
 
@@ -99,7 +104,7 @@ class UploadAttachmentSyncAction(
                     val requestBody = createRequestBody(file)
                     val part = createPart(file, requestBody)
 
-                    noAuthenticationApi.uploadAttachment(
+                    nonZoteroApi.uploadAttachment(
                         url = authorizedUploadResultValue.authorizeNewUploadResponse.url,
                         headers = headers,
                         file = part,
@@ -127,7 +132,7 @@ class UploadAttachmentSyncAction(
             }
             val url =
                 BuildConfig.BASE_API_URL + "/" + this.libraryId.apiPath(userId = this.userId) + "/items/" + this.key + "/file"
-            syncApi.registerUpload(
+            zoteroApi.registerUpload(
                 url = url,
                 headers = headers,
                 upload = uploadKey
@@ -160,15 +165,28 @@ class UploadAttachmentSyncAction(
 
     }
 
-    private suspend fun markAttachmentAsUploaded(version: Int?) {
+    private fun markAttachmentAsUploaded(version: Int?) {
         try {
-            var requests: MutableList<DbRequest> = mutableListOf( MarkAttachmentUploadedDbRequest(libraryId = this.libraryId, key = this.key, version = version))
+            val requests: MutableList<DbRequest> = mutableListOf(
+                MarkAttachmentUploadedDbRequest(
+                    libraryId = this.libraryId,
+                    key = this.key,
+                    version = version
+                )
+            )
             if (version != null) {
-                requests.add(UpdateVersionsDbRequest(version = version, libraryId =this.libraryId, type=  UpdateVersionType.objectS(
-                    SyncObject.item)))
+                requests.add(
+                    UpdateVersionsDbRequest(
+                        version = version,
+                        libraryId = this.libraryId,
+                        type = UpdateVersionType.objectS(
+                            SyncObject.item
+                        )
+                    )
+                )
             }
-            dbWrapper.realmDbStorage.perform(requests)
-        }catch (error: Exception) {
+            dbWrapperMain.realmDbStorage.perform(requests)
+        } catch (error: Exception) {
             Timber.e("UploadAttachmentSyncAction: can't mark attachment as uploaded - $error")
             throw error
         }
@@ -178,7 +196,7 @@ class UploadAttachmentSyncAction(
     private fun checkDatabase() {
         try {
             val request = CheckItemIsChangedDbRequest(libraryId = this.libraryId, key = this.key)
-            val isChanged = dbWrapper.realmDbStorage.perform(request = request, invalidateRealm = true)
+            val isChanged = dbWrapperMain.realmDbStorage.perform(request = request, invalidateRealm = true)
             if (!isChanged) {
                 return
             } else {
@@ -202,7 +220,7 @@ class UploadAttachmentSyncAction(
         }
 
         Timber.e("UploadAttachmentSyncAction: missing attachment - ${this.file.absolutePath}")
-        val item = dbWrapper.realmDbStorage.perform(
+        val item = dbWrapperMain.realmDbStorage.perform(
             ReadItemDbRequest(
                 libraryId = this.libraryId,
                 key = this.key
@@ -215,6 +233,105 @@ class UploadAttachmentSyncAction(
             libraryId = this.libraryId,
             title = title
         )
-
     }
+
+    private suspend fun webDavResult(): CustomResult<Unit> {
+        var file: File? = null
+        var tUrl = ""
+        try {
+            checkDatabase()
+            validateFile()
+            val prepareForUploadResult = webDavController.prepareForUpload(
+                key = this.key,
+                mtime = this.mtime,
+                hash = this.md5,
+                file = this.file
+            )
+            when (prepareForUploadResult) {
+                WebDavUploadResult.exists -> {
+                    Timber.d("UploadAttachmentSyncAction: file exists remotely")
+                    markAttachmentAsUploaded(version = null)
+                    throw SyncActionError.attachmentAlreadyUploaded
+                }
+
+                is WebDavUploadResult.new -> {
+                    val url = prepareForUploadResult.url
+                    val newFile = prepareForUploadResult.file
+                    Timber.i("UploadAttachmentSyncAction: file needs upload")
+                    file = newFile
+                    webDavController.upload(url = url, file = file, key = this.key)
+                    tUrl = url
+                }
+            }
+        } catch (error: Exception) {
+            val generalError = CustomResult.GeneralError.CodeError(error)
+            if (file != null) {
+                webDavController.finishUpload(key = this.key, result = generalError, file = file)
+            }
+            processError(generalError)
+            return generalError
+        }
+
+        try {
+            webDavController.finishUpload(
+                key = this.key,
+                result = CustomResult.GeneralSuccess(Triple(this.mtime, this.md5, tUrl)),
+                file = file
+            )
+            val version: Int = submitItemWithHashAndMtime()
+            markAttachmentAsUploaded(version)
+        } catch (error: Exception) {
+            val generalError = CustomResult.GeneralError.CodeError(error)
+            processError(generalError)
+            return generalError
+        }
+
+        return CustomResult.GeneralSuccess(Unit)
+    }
+
+    private suspend fun submitItemWithHashAndMtime(): Int {
+        Timber.i("UploadAttachmentSyncAction: submit mtime and md5")
+        val loadParameters: Map<String, Any>
+        try {
+            val item = dbWrapperMain.realmDbStorage.perform(
+                request = ReadItemDbRequest(
+                    libraryId = this.libraryId,
+                    key = this.key
+                )
+            )
+            val parameters = item.mtimeAndHashParameters
+            item.realm?.refresh()
+            loadParameters = parameters
+        } catch (e: Exception) {
+            Timber.e(e, "UploadAttachmentSyncAction: can't load params")
+            throw e
+        }
+        this.failedBeforeZoteroApiRequest = false
+        val submitUpdateSyncActionResult = SubmitUpdateSyncAction(
+            parameters = listOf(loadParameters),
+            changeUuids = emptyMap(),
+            sinceVersion = null,
+            objectS = SyncObject.item,
+            libraryId = this.libraryId,
+            userId = this.userId,
+            updateLibraryVersion = false,
+        ).result()
+        when (submitUpdateSyncActionResult) {
+            is CustomResult.GeneralSuccess -> {
+                val err = submitUpdateSyncActionResult.value?.second
+                if (err != null) {
+                    throw err.throwable
+                }
+                return submitUpdateSyncActionResult.value!!.first
+            }
+            is CustomResult.GeneralError.CodeError ->  {
+                throw submitUpdateSyncActionResult.throwable
+            }
+
+            is CustomResult.GeneralError.NetworkError -> {
+                throw Exception("Network Error. ${submitUpdateSyncActionResult.httpCode}, ${submitUpdateSyncActionResult.stringResponse}")
+            }
+        }
+    }
+
 }

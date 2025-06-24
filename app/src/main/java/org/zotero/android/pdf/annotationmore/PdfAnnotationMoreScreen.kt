@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.Divider
 import androidx.compose.material.Text
-import androidx.compose.material.ripple.rememberRipple
+import androidx.compose.material.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,6 +24,13 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import org.zotero.android.architecture.ui.CustomLayoutSize
 import org.zotero.android.database.objects.AnnotationType
+import org.zotero.android.pdf.annotationmore.data.PdfAnnotationMoreArgs
+import org.zotero.android.pdf.annotationmore.rows.PdfAnnotationMoreFreeTextRow
+import org.zotero.android.pdf.annotationmore.rows.PdfAnnotationMoreHighlightRow
+import org.zotero.android.pdf.annotationmore.rows.PdfAnnotationMoreImageRow
+import org.zotero.android.pdf.annotationmore.rows.PdfAnnotationMoreInkRow
+import org.zotero.android.pdf.annotationmore.rows.PdfAnnotationMoreNoteRow
+import org.zotero.android.pdf.annotationmore.rows.PdfAnnotationMoreUnderlineRow
 import org.zotero.android.uicomponents.CustomScaffold
 import org.zotero.android.uicomponents.Strings
 import org.zotero.android.uicomponents.foundation.safeClickable
@@ -33,11 +40,15 @@ import org.zotero.android.uicomponents.theme.CustomThemeWithStatusAndNavBars
 
 @Composable
 internal fun PdfAnnotationMoreScreen(
+    args: PdfAnnotationMoreArgs,
     viewModel: PdfAnnotationMoreViewModel = hiltViewModel(),
     navigateToPageEdit: () -> Unit,
     onBack: () -> Unit,
 ) {
-    viewModel.init()
+
+    LaunchedEffect(args) {
+        viewModel.init(args = args)
+    }
     viewModel.setOsTheme(isDark = isSystemInDarkTheme())
     val viewState by viewModel.viewStates.observeAsState(PdfAnnotationMoreViewState())
     val viewEffect by viewModel.viewEffects.observeAsState()
@@ -88,27 +99,49 @@ internal fun PdfAnnotationMorePart(
     ) {
         item {
             when (viewState.type) {
-                AnnotationType.note -> PdfAnnotationMoreNoteRow(
-                    viewModel = viewModel,
-                    viewState = viewState,
-                )
+                AnnotationType.note -> {
+                    PdfAnnotationMoreNoteRow(
+                        viewModel = viewModel,
+                        viewState = viewState,
+                    )
+                }
 
-                AnnotationType.highlight -> PdfAnnotationMoreHighlightRow(
-                    layoutType = layoutType,
-                    viewState = viewState,
-                    viewModel = viewModel,
-                )
+                AnnotationType.highlight -> {
+                    PdfAnnotationMoreHighlightRow(
+                        layoutType = layoutType,
+                        viewState = viewState,
+                        viewModel = viewModel,
+                    )
+                }
 
-                AnnotationType.ink -> PdfAnnotationMoreInkRow(
-                    viewModel = viewModel,
-                    viewState = viewState,
-                    layoutType = layoutType,
-                )
+                AnnotationType.ink -> {
+                    PdfAnnotationMoreInkRow(
+                        viewModel = viewModel,
+                        viewState = viewState,
+                        layoutType = layoutType,
+                    )
+                }
 
-                AnnotationType.image -> PdfAnnotationMoreImageRow(
-                    viewState = viewState,
-                    viewModel = viewModel,
-                )
+                AnnotationType.image -> {
+                    PdfAnnotationMoreImageRow(
+                        viewState = viewState,
+                        viewModel = viewModel,
+                    )
+                }
+
+                AnnotationType.text-> {
+                    PdfAnnotationMoreFreeTextRow(
+                        viewModel = viewModel,
+                        viewState = viewState,
+                    )
+                }
+                AnnotationType.underline -> {
+                    PdfAnnotationMoreUnderlineRow(
+                        layoutType = layoutType,
+                        viewState = viewState,
+                        viewModel = viewModel,
+                    )
+                }
 
                 null -> {
                     //no-op
@@ -139,7 +172,7 @@ private fun DeleteButton(viewModel: PdfAnnotationMoreViewModel) {
             .safeClickable(
                 onClick = viewModel::onDeleteAnnotation,
                 interactionSource = remember { MutableInteractionSource() },
-                indication = rememberRipple(bounded = true)
+                indication = ripple(bounded = true)
             ), contentAlignment = Alignment.Center
     ) {
         Text(
@@ -163,7 +196,7 @@ private fun PageButton(
             .safeClickable(
                 onClick = viewModel::onPageClicked,
                 interactionSource = remember { MutableInteractionSource() },
-                indication = rememberRipple(bounded = true)
+                indication = ripple(bounded = true)
             ), contentAlignment = Alignment.CenterStart
     ) {
         Text(

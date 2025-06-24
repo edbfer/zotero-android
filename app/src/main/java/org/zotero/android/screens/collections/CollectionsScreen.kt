@@ -26,8 +26,8 @@ import org.zotero.android.uicomponents.theme.CustomThemeWithStatusAndNavBars
 @Composable
 internal fun CollectionsScreen(
     onBack: () -> Unit,
-    navigateToAllItems: () -> Unit,
-    navigateToLibraries: () -> Unit,
+    navigateToAllItems: (String) -> Unit,
+    navigateToLibraries: (String) -> Unit,
     navigateToCollectionEdit: () -> Unit,
     viewModel: CollectionsViewModel = hiltViewModel(),
 ) {
@@ -42,16 +42,17 @@ internal fun CollectionsScreen(
         }
 
         LaunchedEffect(key1 = viewEffect) {
-            when (viewEffect?.consume()) {
+            val consumedEffect = viewEffect?.consume()
+            when (consumedEffect) {
                 null -> Unit
                 CollectionsViewEffect.NavigateBack -> onBack()
-                CollectionsViewEffect.NavigateToAllItemsScreen -> navigateToAllItems()
+                is CollectionsViewEffect.NavigateToAllItemsScreen -> navigateToAllItems(consumedEffect.screenArgs)
                 CollectionsViewEffect.ShowCollectionEditEffect -> {
                     navigateToCollectionEdit()
                 }
 
-                CollectionsViewEffect.NavigateToLibrariesScreen -> {
-                    navigateToLibraries()
+                is CollectionsViewEffect.NavigateToLibrariesScreen -> {
+                    navigateToLibraries(consumedEffect.screenArgs)
                 }
 
                 else -> {}
@@ -73,7 +74,7 @@ internal fun CollectionsScreen(
                 error = { _ ->
                     FullScreenError(
                         modifier = Modifier.align(Alignment.Center),
-                        errorTitle = stringResource(id = Strings.all_items_load_error),
+                        errorTitle = stringResource(id = Strings.error_list_load_check_crash_logs),
                     )
                 },
                 loading = {
@@ -96,9 +97,14 @@ internal fun CollectionsScreen(
                             )
                         }
                         NewDivider()
-                        Box(modifier = Modifier
-                            .fillMaxSize()) {
-                            FilterScreenTablet()
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                        ) {
+                            val args = viewState.tabletFilterArgs
+                            if (args != null) {
+                                FilterScreenTablet(args)
+                            }
                         }
                     }
                 }

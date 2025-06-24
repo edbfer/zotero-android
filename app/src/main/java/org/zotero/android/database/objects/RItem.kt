@@ -110,6 +110,7 @@ open class RItem : Updatable, Deletable, Syncable, RealmObject() {
     var hasPublisher: Boolean = false
     var publicationTitle: String? = ""
     var hasPublicationTitle: Boolean = false
+    var annotationType: String = ""
 
     @Index
     var annotationSortIndex: String = ""
@@ -297,7 +298,8 @@ open class RItem : Updatable, Deletable, Syncable, RealmObject() {
 
                 jsonData[FieldKeys.Item.Annotation.Position.paths] = apiPaths
             }
-            AnnotationType.highlight, AnnotationType.image, AnnotationType.note -> {
+
+            AnnotationType.highlight, AnnotationType.image, AnnotationType.note, AnnotationType.underline, AnnotationType.text -> {
                 val rectArray = mutableListOf<List<Double>>()
                 this.rects.forEach { rRect ->
                     rectArray.add(
@@ -489,7 +491,8 @@ open class RItem : Updatable, Deletable, Syncable, RealmObject() {
             options = AttachmentCreator.Options.light,
             fileStorage = fileStorage,
             urlDetector = null,
-            isForceRemote = true
+            isForceRemote = true,
+            defaults = ZoteroApplication.instance.defaults,
         )
         if (type == null) {
             return
@@ -580,6 +583,26 @@ open class RItem : Updatable, Deletable, Syncable, RealmObject() {
         }
         return value
     }
+
+    val mtimeAndHashParameters: Map<String, Any>
+        get() {
+            val parameters: MutableMap<String, Any> = mutableMapOf(
+                "key" to this.key,
+                "version" to this.version,
+                "dateModified" to sqlFormat.format(this.dateModified),
+                "dateAdded" to sqlFormat.format(this.dateAdded)
+            )
+            val md5 = this.fields.where().key(FieldKeys.Item.Attachment.md5).findFirst()?.value
+            if (md5 != null) {
+                parameters[FieldKeys.Item.Attachment.md5] = md5
+            }
+            val mtime = this.fields.where().key(FieldKeys.Item.Attachment.mtime)
+                .findFirst()?.value?.toLongOrNull()
+            if (mtime != null) {
+                parameters[FieldKeys.Item.Attachment.mtime] = mtime
+            }
+            return parameters
+        }
 
 }
 

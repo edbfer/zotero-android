@@ -4,22 +4,30 @@ import android.graphics.RectF
 import com.pspdfkit.annotations.Annotation
 import com.pspdfkit.annotations.AnnotationFlags
 import com.pspdfkit.annotations.BorderStyle
+import com.pspdfkit.annotations.FreeTextAnnotation
 import com.pspdfkit.annotations.HighlightAnnotation
 import com.pspdfkit.annotations.InkAnnotation
 import com.pspdfkit.annotations.NoteAnnotation
 import com.pspdfkit.annotations.SquareAnnotation
+import com.pspdfkit.annotations.TextMarkupAnnotation
+import com.pspdfkit.annotations.UnderlineAnnotation
 import com.pspdfkit.document.PdfDocument
 import io.realm.RealmResults
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.zotero.android.database.objects.AnnotationType
 import org.zotero.android.database.objects.AnnotationsConfig
 import org.zotero.android.database.objects.RItem
+import org.zotero.android.ktx.isZoteroAnnotation
 import org.zotero.android.ktx.key
 import org.zotero.android.ktx.rounded
 import org.zotero.android.pdf.data.AnnotationBoundingBoxConverter
 import org.zotero.android.pdf.data.AnnotationEditability
-import org.zotero.android.pdf.data.DatabaseAnnotation
-import org.zotero.android.pdf.data.DocumentAnnotation
+import org.zotero.android.pdf.data.PDFDatabaseAnnotation
+import org.zotero.android.pdf.data.PDFDocumentAnnotation
+import org.zotero.android.sync.AnnotationConverter.Kind.export
+import org.zotero.android.sync.AnnotationConverter.Kind.zotero
 import timber.log.Timber
 import java.util.Date
 import java.util.EnumSet
@@ -34,32 +42,38 @@ class AnnotationConverter {
 
     companion object {
 
-        fun annotations(
+        suspend fun annotations(
             items: RealmResults<RItem>,
-            type: Kind = Kind.zotero,
+            type: Kind = zotero,
             currentUserId: Long,
             library: Library,
             displayName: String,
             username: String,
             boundingBoxConverter: AnnotationBoundingBoxConverter,
             isDarkMode: Boolean,
-        ): List<Annotation> {
-            return items.map { item ->
-                annotation(
-                    zoteroAnnotation = DatabaseAnnotation(item = item),
-                    type = type,
-                    currentUserId = currentUserId,
-                    library = library,
-                    displayName = displayName,
-                    username = username,
-                    boundingBoxConverter = boundingBoxConverter,
-                    isDarkMode = isDarkMode
+        ): List<Triple<LibraryIdentifier, String, Annotation>> = withContext(Dispatchers.IO) {
+            items.mapNotNull { item ->
+                val annotation = PDFDatabaseAnnotation.init(item) ?: return@mapNotNull null
+                val libraryId = item.libraryId ?: return@mapNotNull null
+                Triple(
+                    libraryId,
+                    item.key,
+                    annotation(
+                        zoteroAnnotation = annotation,
+                        type = type,
+                        currentUserId = currentUserId,
+                        library = library,
+                        displayName = displayName,
+                        username = username,
+                        boundingBoxConverter = boundingBoxConverter,
+                        isDarkMode = isDarkMode
+                    )
                 )
             }
         }
 
         fun annotation(
-            zoteroAnnotation: DatabaseAnnotation,
+            zoteroAnnotation: PDFDatabaseAnnotation,
             type: Kind,
             currentUserId: Long,
             library: Library,
@@ -70,7 +84,7 @@ class AnnotationConverter {
         ): Annotation {
             val (color, alpha, blendMode) = AnnotationColorGenerator.color(
                 zoteroAnnotation.color,
-                isHighlight = (zoteroAnnotation.type == AnnotationType.highlight),
+                type = zoteroAnnotation.type,
                 isDarkMode = isDarkMode
             )
             val annotation: Annotation
@@ -102,14 +116,26 @@ class AnnotationConverter {
                     color = color,
                     boundingBoxConverter = boundingBoxConverter
                 )
+                AnnotationType.underline -> annotation = underlineAnnotation(
+                    zoteroAnnotation,
+                    type = type,
+                    color = color,
+                    alpha = alpha,
+                    boundingBoxConverter = boundingBoxConverter
+                )
+                AnnotationType.text -> annotation = freeTextAnnotation(
+                    zoteroAnnotation,
+                    color = color,
+                    boundingBoxConverter = boundingBoxConverter
+                )
             }
 
             when (type) {
-                Kind.export -> {
+                export -> {
                     annotation.customData = null
                 }
 
-                Kind.zotero -> {
+                zotero -> {
                     annotation.customData =
                         JSONObject().put(AnnotationsConfig.keyKey, zoteroAnnotation.key)
 
@@ -134,8 +160,50 @@ class AnnotationConverter {
             return annotation
         }
 
+        private fun underlineAnnotation(
+            annotation: PDFDatabaseAnnotation,
+            color: Int,
+            boundingBoxConverter: AnnotationBoundingBoxConverter,
+            type: Kind,
+            alpha: Float
+        ): UnderlineAnnotation {
+            val rects = annotation.rects(boundingBoxConverter).map { it.rounded(3) }
+            val underline = when (type) {
+                export -> UnderlineAnnotation(
+                    annotation.page,
+                    rects
+                )
+
+                zotero -> ZoteroUnderlineAnnotation(
+                    annotation.page,
+                    rects
+                )
+            }
+
+            underline.boundingBox = annotation.boundingBox(boundingBoxConverter).rounded(3)
+            underline.color = color
+            underline.alpha = alpha
+
+            return underline
+        }
+
+        private fun freeTextAnnotation(
+            annotation: PDFDatabaseAnnotation,
+            color: Int,
+            boundingBoxConverter: AnnotationBoundingBoxConverter
+        ): Annotation {
+            val rect = annotation.rects(boundingBoxConverter)[0]
+            val text = FreeTextAnnotation(annotation.page, rect, annotation.comment)
+            text.color = color
+            text.textSize = annotation.fontSize ?: 0.0f
+            text.setBoundingBox(annotation.boundingBox(boundingBoxConverter))//transform size
+            text.setRotation(360 - (annotation.rotation ?: 0))
+            text.adjustBoundsForRotation()
+            return text
+        }
+
         private fun areaAnnotation(
-            annotation: org.zotero.android.pdf.data.Annotation,
+            annotation: org.zotero.android.pdf.data.PDFAnnotation,
             type: Kind,
             color: Int,
             boundingBoxConverter: AnnotationBoundingBoxConverter
@@ -144,14 +212,14 @@ class AnnotationConverter {
             val boundingBox =
                 annotation.boundingBox(boundingBoxConverter = boundingBoxConverter).rounded(3)
             when (type) {
-                Kind.export -> {
+                export -> {
                     square = SquareAnnotation(
                         annotation.page,
                         boundingBox
                     )
                 }
 
-                Kind.zotero -> {
+                zotero -> {
                     square = ZoteroSquareAnnotations(
                         annotation.page,
                         boundingBox
@@ -166,7 +234,7 @@ class AnnotationConverter {
         }
 
         private fun highlightAnnotation(
-            annotation: org.zotero.android.pdf.data.Annotation,
+            annotation: org.zotero.android.pdf.data.PDFAnnotation,
             type: Kind,
             color: Int,
             alpha: Float,
@@ -176,13 +244,13 @@ class AnnotationConverter {
             val rects =
                 annotation.rects(boundingBoxConverter = boundingBoxConverter).map { it.rounded(3) }
             when (type) {
-                Kind.export -> {
+                export -> {
                     highlight = HighlightAnnotation(
                         annotation.page,
                         rects
                     )
                 }
-                Kind.zotero -> {
+                zotero -> {
                     highlight = ZoteroHighlightAnnotation(
                         annotation.page,
                         rects
@@ -197,7 +265,7 @@ class AnnotationConverter {
         }
 
         private fun noteAnnotation(
-            annotation: org.zotero.android.pdf.data.Annotation,
+            annotation: org.zotero.android.pdf.data.PDFAnnotation,
             type: Kind,
             color: Int,
             boundingBoxConverter: AnnotationBoundingBoxConverter
@@ -213,11 +281,11 @@ class AnnotationConverter {
                 )
             val note: NoteAnnotation
             when (type) {
-                Kind.export -> {
+                export -> {
                     note = NoteAnnotation(annotation.page, boundingBox, annotation.comment, null)
                 }
 
-                Kind.zotero -> {
+                zotero -> {
                     note =
                         ZoteroNoteAnnotation(annotation.page, boundingBox, annotation.comment)
                 }
@@ -229,7 +297,7 @@ class AnnotationConverter {
         }
 
         private fun inkAnnotation(
-            annotation: org.zotero.android.pdf.data.Annotation,
+            annotation: org.zotero.android.pdf.data.PDFAnnotation,
             color: Int,
             boundingBoxConverter: AnnotationBoundingBoxConverter
         ): InkAnnotation {
@@ -248,7 +316,7 @@ class AnnotationConverter {
             username: String,
             displayName: String,
             boundingBoxConverter: AnnotationBoundingBoxConverter?
-        ): DocumentAnnotation? {
+        ): PDFDocumentAnnotation? {
             if (!AnnotationsConfig.supported.contains(annotation.type)) {
                 return null
             }
@@ -270,44 +338,54 @@ class AnnotationConverter {
 
             val type: AnnotationType
             val rects: List<RectF>
-            val text: String?
+            var text: String? = null
             val paths: List<List<PointF>>
-            val lineWidth: Float?
+            var lineWidth: Float? = null
+            var fontSize: Float? = null
+            var rotation: Int? = null
 
             val noteAnnotation = annotation as? NoteAnnotation
             val highlightAnnotation = annotation as? HighlightAnnotation
             val squareAnnotation = annotation as? SquareAnnotation
             val inkAnnotation = annotation as? InkAnnotation
+            val underlineAnnotation = annotation as? UnderlineAnnotation
+            val freeTextAnnotation = annotation as? FreeTextAnnotation
             if (noteAnnotation != null) {
                 type = AnnotationType.note
                 rects = rects(noteAnnotation)
-                text = null
                 paths = emptyList()
-                lineWidth = null
             } else if (highlightAnnotation != null) {
                 type = AnnotationType.highlight
-                rects = rects(highlightAnnotation)
-                //TODO removeNewLines
+                rects = rectsUnderlineAndHightlight(highlightAnnotation)
                 text = highlightAnnotation.highlightedText
                 paths = emptyList()
-                lineWidth = null
             } else if (squareAnnotation != null) {
                 type = AnnotationType.image
                 rects = rects(squareAnnotation)
-                text = null
                 paths = emptyList()
-                lineWidth = null
             } else if (inkAnnotation != null) {
                 type = AnnotationType.ink
                 rects = emptyList()
-                text = null
                 paths = paths(inkAnnotation)
                 lineWidth = inkAnnotation.lineWidth
-            } else {
+            } else if (underlineAnnotation != null) {
+                type = AnnotationType.underline
+                rects = rectsUnderlineAndHightlight(underlineAnnotation)
+                text = underlineAnnotation.highlightedText
+                paths = emptyList()
+            } else if (freeTextAnnotation != null) {
+                type = AnnotationType.text
+                fontSize = annotation.textSize
+                rotation = annotation.rotation
+                paths = emptyList()
+                rects = rects(freeTextAnnotation)
+            }
+
+            else {
                 return null
             }
 
-            return DocumentAnnotation(
+            return PDFDocumentAnnotation(
                 key = key,
                 type = type,
                 page = page,
@@ -318,10 +396,13 @@ class AnnotationConverter {
                 color = color,
                 comment = comment,
                 text = text,
+                fontSize = fontSize,
+                rotation = rotation,
                 dateModified = date,
                 sortIndex = sortIndex,
                 author = author,
                 isAuthor = isAuthor,
+                isZoteroAnnotation = annotation.isZoteroAnnotation
             )
         }
 
@@ -339,26 +420,37 @@ class AnnotationConverter {
                 )
             )
         }
-        private fun rects(annotation: HighlightAnnotation) : List<RectF> {
-            return (annotation.rects ?: listOf(annotation.boundingBox))
+        private fun rectsUnderlineAndHightlight(highlightAndUnderlineAnnotation: TextMarkupAnnotation) : List<RectF> {
+            return (highlightAndUnderlineAnnotation.rects ?: listOf(highlightAndUnderlineAnnotation.boundingBox))
         }
         private fun rects(annotation: SquareAnnotation) : List<RectF>  {
             return listOf(annotation.boundingBox)
         }
 
-        fun rects(annotation: Annotation): List<RectF>? {
-            when(annotation) {
-                is NoteAnnotation -> {
-                    rects(annotation)
-                }
-                is HighlightAnnotation -> {
-                    rects(annotation)
-                }
-                is SquareAnnotation -> {
-                    rects(annotation)
-                }
-            }
-            return null
+        private fun rects(annotation: FreeTextAnnotation) : List<RectF>  {
+            return listOf(annotation.boundingBox)
+//            if (annotation.rotation <= 0) {
+//                return listOf(
+//                    annotation.boundingBox
+//                )
+//            }
+//
+//            val tempAnnotation = FreeTextAnnotation(
+//                annotation.pageIndex,
+//                annotation.boundingBox,
+//                annotation.contents
+//            )
+//            tempAnnotation.textSize = annotation.textSize
+//            tempAnnotation.fontName = annotation.fontName
+//            tempAnnotation.setRotation(annotation.rotation)
+//
+//            val originalRotation = tempAnnotation.rotation
+//            val oldBox = tempAnnotation.boundingBox
+//            println(oldBox)
+//            tempAnnotation.setRotation(0)
+//            val boundingBox = tempAnnotation.boundingBox
+////            tempAnnotation.setRotation(originalRotation)
+//            return listOf(boundingBox)
         }
 
         fun paths(annotation: InkAnnotation): List<List<PointF>> {
@@ -370,7 +462,8 @@ class AnnotationConverter {
         }
         fun sortIndex(annotation: Annotation, boundingBoxConverter: AnnotationBoundingBoxConverter?):  String {
             val rect: RectF
-            if (annotation is HighlightAnnotation) {
+            if (annotation is HighlightAnnotation || annotation is UnderlineAnnotation) {
+                annotation as TextMarkupAnnotation
                 rect = annotation.rects.firstOrNull() ?: annotation.boundingBox
             } else {
                 rect = annotation.boundingBox
@@ -398,5 +491,22 @@ class AnnotationConverter {
             return "Unknown"
         }
 
+        fun rects(annotation: Annotation): List<RectF>? {
+            when(annotation) {
+                is NoteAnnotation -> {
+                    rects(annotation)
+                }
+                is HighlightAnnotation, is UnderlineAnnotation -> {
+                    rectsUnderlineAndHightlight(annotation as TextMarkupAnnotation)
+                }
+                is SquareAnnotation -> {
+                    rects(annotation)
+                }
+                is FreeTextAnnotation -> {
+                    return rects(annotation)
+                }
+            }
+            return null
+        }
     }
 }

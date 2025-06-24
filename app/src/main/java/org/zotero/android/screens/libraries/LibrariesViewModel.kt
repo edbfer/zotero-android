@@ -4,13 +4,17 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.realm.OrderedCollectionChangeSet
 import io.realm.RealmResults
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.launch
+import org.greenrobot.eventbus.EventBus
 import org.zotero.android.architecture.BaseViewModel2
 import org.zotero.android.architecture.LCE2
-import org.zotero.android.architecture.ScreenArguments
 import org.zotero.android.architecture.ViewEffect
 import org.zotero.android.architecture.ViewState
-import org.zotero.android.database.DbWrapper
+import org.zotero.android.architecture.navigation.NavigationParamsMarshaller
+import org.zotero.android.database.DbWrapperMain
 import org.zotero.android.database.objects.RCustomLibrary
 import org.zotero.android.database.objects.RCustomLibraryType
 import org.zotero.android.database.objects.RGroup
@@ -18,18 +22,21 @@ import org.zotero.android.database.requests.ReadAllCustomLibrariesDbRequest
 import org.zotero.android.database.requests.ReadAllGroupsDbRequest
 import org.zotero.android.files.FileStore
 import org.zotero.android.screens.collections.data.CollectionsArgs
+import org.zotero.android.screens.libraries.data.DeleteGroupDialogData
 import org.zotero.android.screens.libraries.data.LibraryRowData
 import org.zotero.android.screens.libraries.data.LibraryState
 import org.zotero.android.sync.CollectionIdentifier
 import org.zotero.android.sync.Library
 import org.zotero.android.sync.LibraryIdentifier
 import timber.log.Timber
+import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 
 @HiltViewModel
 internal class LibrariesViewModel @Inject constructor(
-    private val dbWrapper: DbWrapper,
+    private val dbWrapperMain: DbWrapperMain,
     private val fileStore: FileStore,
+    private val navigationParamsMarshaller: NavigationParamsMarshaller,
 ) : BaseViewModel2<LibrariesViewState, LibrariesViewEffect>(LibrariesViewState()) {
 
     var customLibraries: RealmResults<RCustomLibrary>? = null
@@ -44,7 +51,7 @@ internal class LibrariesViewModel @Inject constructor(
     }
 
     private fun loadData() {
-        dbWrapper.realmDbStorage.perform { coordinator ->
+        dbWrapperMain.realmDbStorage.perform { coordinator ->
             val libraries = coordinator.perform(request = ReadAllCustomLibrariesDbRequest())
             val groups = coordinator.perform(request = ReadAllGroupsDbRequest())
 
@@ -55,10 +62,6 @@ internal class LibrariesViewModel @Inject constructor(
                     }
 
                     OrderedCollectionChangeSet.State.UPDATE -> {
-                        val deletions = changeSet.deletions
-                        if (!deletions.isEmpty()) {
-                            //TODO process group deletion
-                        }
                         generateLibraryRows()
                     }
 
@@ -80,11 +83,11 @@ internal class LibrariesViewModel @Inject constructor(
         updateState {
             copy(
                 customLibraries = this@LibrariesViewModel.customLibraries?.map {
-                createCustomLibraryRowData(it)
-            } ?: emptyList(),
+                    createCustomLibraryRowData(it)
+                }?.toImmutableList() ?: persistentListOf(),
                 groupLibraries = this@LibrariesViewModel.groupLibraries?.map {
                     createGroupLibraryRowData(it)
-                } ?: emptyList(),
+                }?.toImmutableList() ?: persistentListOf(),
                 lce = LCE2.Content
             )
         }
@@ -92,6 +95,7 @@ internal class LibrariesViewModel @Inject constructor(
 
     private fun createCustomLibraryRowData(library: RCustomLibrary): LibraryRowData {
         return LibraryRowData(
+            id = -1,
             name = RCustomLibraryType.valueOf(library.type).libraryName,
             state = LibraryState.normal
         )
@@ -105,7 +109,7 @@ internal class LibrariesViewModel @Inject constructor(
         } else {
             state = LibraryState.normal
         }
-        return LibraryRowData(name = library.name, state = state)
+        return LibraryRowData(id = library.identifier ,name = library.name, state = state)
     }
 
     private fun libraryForCustomLibrary(index: Int): Library? {
@@ -137,30 +141,58 @@ internal class LibrariesViewModel @Inject constructor(
         }
     }
     fun showCollections(libraryId: LibraryIdentifier) {
-        val collectionId = storeIfNeeded(libraryId = libraryId)
+        viewModelScope.launch {
+            val collectionId = storeIfNeeded(libraryId = libraryId)
 
-        ScreenArguments.collectionsArgs = CollectionsArgs(
-            libraryId = libraryId,
-            selectedCollectionId = collectionId,
-            shouldRecreateItemsScreen = this.isTablet
-        )
-        triggerEffect(LibrariesViewEffect.NavigateToCollectionsScreen)
+            val collectionsArgs = CollectionsArgs(
+                libraryId = libraryId,
+                selectedCollectionId = collectionId,
+                shouldRecreateItemsScreen = this@LibrariesViewModel.isTablet
+            )
+            val encodedArgs = navigationParamsMarshaller.encodeObjectToBase64(collectionsArgs, StandardCharsets.UTF_8)
+            triggerEffect(LibrariesViewEffect.NavigateToCollectionsScreen(encodedArgs))
+        }
     }
 
-    private fun storeIfNeeded(libraryId: LibraryIdentifier, collectionId: CollectionIdentifier? = null): CollectionIdentifier {
-        if (fileStore.getSelectedLibrary() == libraryId) {
+    private suspend fun storeIfNeeded(libraryId: LibraryIdentifier, collectionId: CollectionIdentifier? = null): CollectionIdentifier {
+        if (fileStore.getSelectedLibraryAsync() == libraryId) {
             if (collectionId != null) {
-                fileStore.setSelectedCollectionId(collectionId)
+                fileStore.setSelectedCollectionIdAsync(collectionId)
                 return collectionId
             }
-            return fileStore.getSelectedCollectionId()
+            return fileStore.getSelectedCollectionIdAsync()
         }
 
         val collectionId = collectionId ?: CollectionIdentifier.custom(CollectionIdentifier.CustomType.all)
-        fileStore.setSelectedLibrary(libraryId)
-        fileStore.setSelectedCollectionId(collectionId)
+        fileStore.setSelectedLibraryAsync(libraryId)
+        fileStore.setSelectedCollectionIdAsync(collectionId)
         return collectionId
 
+    }
+
+    fun showDeleteGroupQuestion(id: Int, name: String) {
+        dismissDeleteGroupPopup()
+        EventBus.getDefault().post(DeleteGroupDialogData(id = id, name = name))
+    }
+
+    fun dismissDeleteGroupPopup() {
+        updateState {
+            copy(
+                groupIdForDeletePopup = null,
+            )
+        }
+    }
+
+    fun showDeleteGroupPopup(item: LibraryRowData) {
+        val group = this.groupLibraries!!.find { it.identifier == item.id } ?: return
+        if (!group.isLocalOnly) {
+            return
+        }
+        updateState {
+            copy(
+                groupIdForDeletePopup = group.identifier,
+            )
+        }
     }
 
 }
@@ -168,12 +200,13 @@ internal class LibrariesViewModel @Inject constructor(
 internal data class  LibrariesViewState(
     val str: String = "",
     val lce: LCE2 = LCE2.Loading,
-    val customLibraries: List<LibraryRowData> = emptyList(),
-    val groupLibraries: List<LibraryRowData> = emptyList(),
+    val groupIdForDeletePopup: Int? = null,
+    val customLibraries: ImmutableList<LibraryRowData> = persistentListOf(),
+    val groupLibraries: ImmutableList<LibraryRowData> = persistentListOf(),
 ) : ViewState {
 
 }
 
 internal sealed class  LibrariesViewEffect : ViewEffect {
-    object NavigateToCollectionsScreen : LibrariesViewEffect()
+    data class NavigateToCollectionsScreen(val screenArgs: String) : LibrariesViewEffect()
 }

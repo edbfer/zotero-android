@@ -4,18 +4,20 @@ import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.zotero.android.BuildConfig
-import org.zotero.android.api.SyncApi
+import org.zotero.android.api.ZoteroApi
 import org.zotero.android.api.mappers.CollectionResponseMapper
 import org.zotero.android.api.mappers.ItemResponseMapper
 import org.zotero.android.api.mappers.SearchResponseMapper
 import org.zotero.android.api.network.CustomResult
 import org.zotero.android.api.network.safeApiCall
-import org.zotero.android.database.DbWrapper
+import org.zotero.android.architecture.coroutines.Dispatchers
+import org.zotero.android.database.DbWrapperMain
 import org.zotero.android.database.requests.StoreCollectionsDbRequest
 import org.zotero.android.database.requests.StoreItemsDbResponseRequest
 import org.zotero.android.database.requests.StoreSearchesDbRequest
@@ -31,8 +33,8 @@ typealias SyncBatchResponse = Triple<List<String>, List<Throwable>, List<StoreIt
 class SyncBatchProcessor(
     val batches: List<DownloadBatch>,
     val userId: Long,
-    val syncApi: SyncApi,
-    val dbWrapper: DbWrapper,
+    val zoteroApi: ZoteroApi,
+    val dbWrapperMain: DbWrapperMain,
     val fileStore: FileStore,
     val itemResponseMapper: ItemResponseMapper,
     val collectionResponseMapper: CollectionResponseMapper,
@@ -42,6 +44,7 @@ class SyncBatchProcessor(
     val gson: Gson,
     val progress: (Int) -> Unit,
     val completion: suspend (CustomResult<SyncBatchResponse>) -> Unit,
+    val dispatchers: Dispatchers,
 ) {
 
     private var failedIds = Collections.synchronizedList(mutableListOf<String>())
@@ -50,36 +53,39 @@ class SyncBatchProcessor(
     private var isFinished: AtomicBoolean = AtomicBoolean(false)
     private var processedCount: AtomicInteger = AtomicInteger(0)
 
-    private val limitedParallelismDispatcher = Dispatchers.IO.limitedParallelism(4)
-    private val resultsProcessorCoroutineScope = CoroutineScope(limitedParallelismDispatcher)
+    private val resultsProcessorCoroutineScope = CoroutineScope(dispatchers.io)
+    private val semaphore = Semaphore(4)
 
-    suspend fun start() {
+    fun start() {
         this.batches.map { batch ->
-            val keysString = batch.keys.joinToString(separator = ",")
-            val url =
-                BuildConfig.BASE_API_URL + "/" + batch.libraryId.apiPath(userId = this.userId) + "/" + batch.objectS.apiPath
 
             resultsProcessorCoroutineScope.launch {
-                val networkResult = safeApiCall {
-                    val parameters = mutableMapOf<String, String>()
-                    when (batch.objectS) {
-                        SyncObject.collection ->
-                            parameters["collectionKey"] = keysString
+                semaphore.withPermit {
+                    val keysString = batch.keys.joinToString(separator = ",")
+                    val url =
+                        BuildConfig.BASE_API_URL + "/" + batch.libraryId.apiPath(userId = this@SyncBatchProcessor.userId) + "/" + batch.objectS.apiPath
 
-                        SyncObject.item, SyncObject.trash ->
-                            parameters["itemKey"] = keysString
+                    val networkResult = safeApiCall {
+                        val parameters = mutableMapOf<String, String>()
+                        when (batch.objectS) {
+                            SyncObject.collection ->
+                                parameters["collectionKey"] = keysString
 
-                        SyncObject.search ->
-                            parameters["searchKey"] = keysString
+                            SyncObject.item, SyncObject.trash ->
+                                parameters["itemKey"] = keysString
 
-                        SyncObject.settings -> {}
+                            SyncObject.search ->
+                                parameters["searchKey"] = keysString
+
+                            SyncObject.settings -> {}
+                        }
+                        zoteroApi.objects(url = url, queryMap = parameters)
                     }
-                    syncApi.objects(url = url, queryMap = parameters)
+                    if (!isActive) {
+                        return@launch
+                    }
+                    process(result = networkResult, batch = batch)
                 }
-                if (!isActive) {
-                    return@launch
-                }
-                process(result = networkResult, batch = batch)
             }
         }
     }
@@ -173,7 +179,7 @@ class SyncBatchProcessor(
                 }
 
                 storeIndividualObjects(objects, type = SyncObject.collection, libraryId = libraryId)
-                dbWrapper.realmDbStorage.perform(request = StoreCollectionsDbRequest(response = collections))
+                dbWrapperMain.realmDbStorage.perform(request = StoreCollectionsDbRequest(response = collections))
 
                 val failedKeys =
                     failedKeys(expectedKeys = expectedKeys, parsedKeys = collections.map { it.key })
@@ -196,7 +202,7 @@ class SyncBatchProcessor(
                 }
                 storeIndividualObjects(objects, SyncObject.search, libraryId = libraryId)
 
-                dbWrapper.realmDbStorage.perform(request = StoreSearchesDbRequest(response = searches))
+                dbWrapperMain.realmDbStorage.perform(request = StoreSearchesDbRequest(response = searches))
 
                 val failedKeys =
                     failedKeys(expectedKeys = expectedKeys, parsedKeys = searches.map { it.key })
@@ -227,7 +233,7 @@ class SyncBatchProcessor(
                     preferResponseData = true,
                     denyIncorrectCreator = true,
                 )
-                val response = dbWrapper.realmDbStorage.perform(request = request, invalidateRealm = true)
+                val response = dbWrapperMain.realmDbStorage.perform(request = request, invalidateRealm = true)
                 val failedKeys =
                     failedKeys(expectedKeys = expectedKeys, parsedKeys = items.map { it.key })
 
@@ -285,7 +291,6 @@ class SyncBatchProcessor(
 
     fun cancelAllOperations() {
         resultsProcessorCoroutineScope.cancel()
-        limitedParallelismDispatcher.cancel()
     }
 
 }

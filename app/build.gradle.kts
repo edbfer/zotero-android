@@ -80,6 +80,11 @@ android {
             buildConfigField("boolean", "EVENT_AND_CRASH_LOGGING_ENABLED", "false")
             manifestPlaceholders["enableCrashReporting"] = false
             extra.set("enableCrashlytics", false)
+            //Prevent variables from being 'optimized out' during debug,
+            //so it becomes possible to see their values in debugger
+            kotlinOptions {
+                freeCompilerArgs = freeCompilerArgs + listOf("-Xdebug")
+            }
         }
         getByName("release") {
             isDebuggable = false
@@ -98,7 +103,7 @@ android {
             applicationIdSuffix = ".debug"
         }
         internal {
-            resValue("string", "app_name", """"Zotero Beta""")
+            resValue("string", "app_name", """"Zotero""")
             buildConfigField("String", "PSPDFKIT_KEY", readPspdfkitKey())
         }
     }
@@ -161,6 +166,7 @@ dependencies {
     implementation(Libs.Commons.io)
     implementation(Libs.Commons.codec)
     implementation(Libs.Commons.validator)
+    implementation(Libs.Commons.text)
 
     //Other
     implementation(Libs.timber)

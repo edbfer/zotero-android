@@ -74,7 +74,7 @@ class RevertLibraryUpdatesSyncAction(
             var failedSearches = mutableListOf<String>()
             var failedItems = mutableListOf<String>()
 
-            dbWrapper.realmDbStorage.perform { coordinator ->
+            dbWrapperMain.realmDbStorage.perform { coordinator ->
                 val collections = loadCachedJsonForObject(
                     clazz = RCollection::class,
                     objectType = SyncObject.collection,

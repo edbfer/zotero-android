@@ -4,7 +4,7 @@ import org.zotero.android.api.network.CustomResult
 import org.zotero.android.api.pojo.sync.ItemResponse
 import org.zotero.android.api.pojo.sync.TagResponse
 import org.zotero.android.backgrounduploader.BackgroundUpload
-import org.zotero.android.database.DbWrapper
+import org.zotero.android.database.DbWrapperMain
 import org.zotero.android.database.objects.Attachment
 import org.zotero.android.database.objects.FieldKeys
 import org.zotero.android.database.objects.ItemTypes
@@ -13,8 +13,6 @@ import org.zotero.android.database.requests.CreateBackendItemDbRequest
 import org.zotero.android.database.requests.CreateItemWithAttachmentDbRequest
 import org.zotero.android.database.requests.MarkAttachmentUploadedDbRequest
 import org.zotero.android.database.requests.UpdateCollectionLastUsedDbRequest
-import org.zotero.android.database.requests.UpdateVersionType
-import org.zotero.android.database.requests.UpdateVersionsDbRequest
 import org.zotero.android.database.requests.key
 import org.zotero.android.files.FileStore
 import org.zotero.android.screens.share.backgroundprocessor.BackgroundUploadProcessor
@@ -30,6 +28,8 @@ import org.zotero.android.sync.syncactions.AuthorizeUploadSyncAction
 import org.zotero.android.sync.syncactions.SubmitUpdateSyncAction
 import org.zotero.android.sync.syncactions.data.AuthorizeUploadResponse
 import org.zotero.android.translator.data.AttachmentState
+import org.zotero.android.webdav.WebDavController
+import org.zotero.android.webdav.data.WebDavUploadResult
 import timber.log.Timber
 import java.io.File
 import java.util.Date
@@ -38,11 +38,12 @@ import javax.inject.Singleton
 
 @Singleton
 class ShareItemSubmitter @Inject constructor(
-    private val dbWrapper: DbWrapper,
+    private val dbWrapperMain: DbWrapperMain,
     private val schemaController: SchemaController,
     private val dateParser: DateParser,
     private val fileStore: FileStore,
     private val backgroundUploadProcessor: BackgroundUploadProcessor,
+    private val webDavController: WebDavController,
 ) {
 
     fun createItem(
@@ -53,7 +54,7 @@ class ShareItemSubmitter @Inject constructor(
     ): Pair<Map<String, Any>, Map<String, List<String>>> {
         var changeUuids: MutableMap<String, List<String>> = mutableMapOf()
         var parameters: MutableMap<String, Any> = mutableMapOf()
-        dbWrapper.realmDbStorage.perform { coordinator ->
+        dbWrapperMain.realmDbStorage.perform { coordinator ->
             val collectionKey = item.collectionKeys.firstOrNull()
             if (collectionKey != null) {
                 coordinator.perform(
@@ -85,7 +86,7 @@ class ShareItemSubmitter @Inject constructor(
         var changeUuids: MutableMap<String, List<String>> = mutableMapOf()
         var mtime: Long? = null
         var md5: String? = null
-        dbWrapper.realmDbStorage.perform { coordinator ->
+        dbWrapperMain.realmDbStorage.perform { coordinator ->
             val collectionKey = item.collectionKeys.firstOrNull()
             if (collectionKey != null) {
                 coordinator.perform(
@@ -144,7 +145,7 @@ class ShareItemSubmitter @Inject constructor(
         var md5: String? = null
         var mtime: Long? = null
 
-        dbWrapper.realmDbStorage.perform { coordinator ->
+        dbWrapperMain.realmDbStorage.perform { coordinator ->
             val collectionKey = collections.firstOrNull()
             if (collectionKey != null) {
                 coordinator.perform(
@@ -359,12 +360,7 @@ class ShareItemSubmitter @Inject constructor(
                         key = data.attachment.key,
                         version = response.version
                     )
-                    val request2 = UpdateVersionsDbRequest(
-                        version = response.version,
-                        libraryId = data.libraryId,
-                        type = UpdateVersionType.objectS(SyncObject.item)
-                    )
-                    dbWrapper.realmDbStorage.perform(listOf(request, request2))
+                    dbWrapperMain.realmDbStorage.perform(request)
                 }
 
                 is AuthorizeUploadResponse.new -> {
@@ -396,5 +392,73 @@ class ShareItemSubmitter @Inject constructor(
             Timber.e(e, "Could not submit item or attachment")
             processUploadToZoteroException(CustomResult.GeneralError.CodeError(e), data)
         }
+    }
+
+    suspend fun uploadToWebDav(
+        data: UploadData,
+        attachmentKey: String,
+        zipMimetype: String,
+        processUploadToZoteroException: (
+            error: CustomResult.GeneralError,
+            data: UploadData
+        ) -> Unit,
+        onBack: () -> Unit,
+    ) {
+        try {
+            val submissionDataResult = submit(data = data)
+            if (submissionDataResult is CustomResult.GeneralError) {
+                processUploadToZoteroException(submissionDataResult, data)
+                return
+            }
+            val submissionData = (submissionDataResult as CustomResult.GeneralSuccess).value!!
+            val response = webDavController.prepareForUpload(
+                key = data.attachment.key,
+                mtime = submissionData.mtime,
+                hash = submissionData.md5,
+                file = data.file
+            )
+
+            when (response) {
+                is WebDavUploadResult.exists -> {
+                    Timber.i("ShareViewModel: file exists remotely")
+                    val request = MarkAttachmentUploadedDbRequest(
+                        libraryId = data.libraryId,
+                        key = data.attachment.key,
+                        version = null
+                    )
+                    dbWrapperMain.realmDbStorage.perform(request)
+                }
+
+                is WebDavUploadResult.new -> {
+                    val url = response.url
+                    val file = response.file
+                    Timber.i("ShareViewModel: upload authorized")
+
+                    val upload = BackgroundUpload(
+                        type = BackgroundUpload.Kind.webdav(submissionData.mtime),
+                        key = attachmentKey,
+                        libraryId = data.libraryId,
+                        userId = data.userId,
+                        remoteUrl = url,
+                        fileUrl = file,
+                        md5 = submissionData.md5,
+                        date = Date()
+                    )
+                    backgroundUploadProcessor.startAsync(
+                        upload = upload,
+                        filename = data.attachment.key + ".zip",
+                        mimeType = zipMimetype,
+                        parameters = LinkedHashMap(),
+                        headers = emptyMap()
+                    )
+
+                }
+            }
+            onBack()
+        } catch (e: Exception) {
+            Timber.e(e, "Could not submit item or attachment to webdav")
+            processUploadToZoteroException(CustomResult.GeneralError.CodeError(e), data)
+        }
+
     }
 }

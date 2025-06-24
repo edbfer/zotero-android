@@ -43,7 +43,7 @@ class SubmitDeletionSyncAction(
 
                 SyncObject.settings -> {}
             }
-            syncApi.submitDeletionsRequest(
+            zoteroApi.submitDeletionsRequest(
                 url = url,
                 queryMap = parameters,
                 headers = mapOf("If-Modified-Since-Version" to this.version.toString())
@@ -60,7 +60,7 @@ class SubmitDeletionSyncAction(
     private fun deleteFromDb(version: Int): Boolean {
         try {
             var didCreateDeletions = false
-            dbWrapper.realmDbStorage.perform { coordinator ->
+            dbWrapperMain.realmDbStorage.perform { coordinator ->
                 val updateVersion = UpdateVersionsDbRequest(
                     version = version,
                     libraryId = this.libraryId,

@@ -14,6 +14,7 @@ import org.zotero.android.architecture.ViewEffect
 import org.zotero.android.architecture.ViewState
 import org.zotero.android.database.objects.AnnotationType
 import org.zotero.android.database.objects.AnnotationsConfig
+import org.zotero.android.pdf.annotationmore.data.PdfAnnotationMoreArgs
 import org.zotero.android.pdf.annotationmore.data.PdfAnnotationMoreDeleteResult
 import org.zotero.android.pdf.annotationmore.data.PdfAnnotationMoreSaveResult
 import org.zotero.android.pdf.annotationmore.editpage.data.PdfAnnotationEditPageArgs
@@ -31,6 +32,9 @@ internal class PdfAnnotationMoreViewModel @Inject constructor(
     PdfAnnotationMoreViewState()
 ) {
 
+    private lateinit var args: PdfAnnotationMoreArgs
+    private var pdfReaderThemeCancellable: Job? = null
+
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onEvent(result: PdfAnnotationEditPageResult) {
         updateState {
@@ -38,16 +42,14 @@ internal class PdfAnnotationMoreViewModel @Inject constructor(
         }
     }
 
-    private var pdfReaderThemeCancellable: Job? = null
-
-    fun init() = initOnce {
+    fun init(args: PdfAnnotationMoreArgs) = initOnce {
+        this.args = args
         EventBus.getDefault().register(this)
         updateState {
             copy(isDark = pdfReaderCurrentThemeEventStream.currentValue()!!.isDark)
         }
         startObservingTheme()
 
-        val args = ScreenArguments.pdfAnnotationMoreArgs
         val annotation = args.selectedAnnotation!!
 
         val colors = AnnotationsConfig.colors(annotation.type)
@@ -58,8 +60,10 @@ internal class PdfAnnotationMoreViewModel @Inject constructor(
                 color = annotation.color,
                 colors = colors,
                 lineWidth = annotation.lineWidth ?: 1.0f,
+                fontSize = annotation.fontSize ?: 12f,
                 highlightText = annotation.text ?: "",
                 pageLabel = annotation.pageLabel,
+                underlineText = annotation.text ?: "",
             )
         }
     }
@@ -112,18 +116,55 @@ internal class PdfAnnotationMoreViewModel @Inject constructor(
     }
 
     fun onSave() {
+        val text = when(viewState.type) {
+            AnnotationType.highlight -> {
+                viewState.highlightText
+            }
+            AnnotationType.underline -> {
+                viewState.underlineText
+            }
+            else -> {
+                ""
+            }
+        }
         EventBus.getDefault().post(
             PdfAnnotationMoreSaveResult(
                 key = viewState.key!!,
                 color = viewState.color,
                 lineWidth = viewState.lineWidth,
+                fontSize = viewState.fontSize,
                 pageLabel = viewState.pageLabel,
                 updateSubsequentLabels = viewState.updateSubsequentLabels,
-                highlightText = viewState.highlightText
+                text = text
             )
         )
         triggerEffect(PdfAnnotationMoreViewEffect.Back)
 
+    }
+
+    fun onFontSizeDecrease() {
+        updateState {
+            copy(fontSize = viewState.fontSize - 0.5f)
+        }
+
+    }
+
+    fun onFontSizeIncrease() {
+        updateState {
+            copy(fontSize = viewState.fontSize + 0.5f)
+        }
+    }
+
+    fun onUnderlineTextValueChange(newText: String) {
+        updateState {
+            copy(underlineText = newText)
+        }
+    }
+
+    fun onHighlightTextValueChange(newText: String) {
+        updateState {
+            copy(highlightText = newText)
+        }
     }
 
 }
@@ -135,9 +176,11 @@ internal data class PdfAnnotationMoreViewState(
     val color: String = "",
     val colors: List<String> = emptyList(),
     val lineWidth: Float = 1.0f,
+    val fontSize: Float = 12f,
     val pageLabel: String = "",
     val updateSubsequentLabels: Boolean = false,
     val highlightText: String = "",
+    val underlineText: String = "",
 ) : ViewState
 
 internal sealed class PdfAnnotationMoreViewEffect : ViewEffect {

@@ -9,16 +9,16 @@ abstract class SyncAction {
         EntryPoints.get(ZoteroApplication.instance, SyncActionDependencyProvider::class.java)
     }
 
-    val syncApi by lazy {
-        bindings.syncApi()
+    val zoteroApi by lazy {
+        bindings.zoteroApi()
     }
 
     val settingsResponseMapper by lazy {
         bindings.settingsResponseMapper()
     }
 
-    val dbWrapper by lazy {
-        bindings.dbWrapper()
+    val dbWrapperMain by lazy {
+        bindings.dbWrapperMain()
     }
 
     val gson by lazy {
@@ -64,8 +64,8 @@ abstract class SyncAction {
         bindings.attachmentDownloaderEventStream()
     }
 
-    val noAuthenticationApi by lazy {
-        bindings.noAuthenticationApi()
+    val nonZoteroApi by lazy {
+        bindings.nonZoteroApi()
     }
 
     val updatesResponseMapper by lazy {
@@ -74,5 +74,17 @@ abstract class SyncAction {
 
     val pageIndexResponseMapper by lazy {
         bindings.pageIndexResponseMapper()
+    }
+
+    val webDavController by lazy {
+        bindings.webDavController()
+    }
+
+    val sessionStorage by lazy {
+        bindings.webDavSessionStorage()
+    }
+
+    val defaults by lazy {
+        bindings.defaults()
     }
 }

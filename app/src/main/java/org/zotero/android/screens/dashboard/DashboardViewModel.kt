@@ -5,6 +5,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import io.realm.OrderedCollectionChangeSet
+import io.realm.RealmResults
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -15,22 +17,29 @@ import org.zotero.android.architecture.BaseViewModel2
 import org.zotero.android.architecture.ScreenArguments
 import org.zotero.android.architecture.ViewEffect
 import org.zotero.android.architecture.ViewState
+import org.zotero.android.architecture.ifFailure
 import org.zotero.android.architecture.logging.crash.CrashReportIdDialogData
 import org.zotero.android.architecture.logging.crash.CrashShareDataEventStream
 import org.zotero.android.architecture.logging.debug.DebugLogging
 import org.zotero.android.architecture.logging.debug.DebugLoggingDialogData
 import org.zotero.android.architecture.logging.debug.DebugLoggingDialogDataEventStream
 import org.zotero.android.architecture.logging.debug.DebugLoggingInterface
-import org.zotero.android.database.DbWrapper
+import org.zotero.android.architecture.navigation.NavigationParamsMarshaller
+import org.zotero.android.database.DbWrapperMain
 import org.zotero.android.database.objects.RCustomLibraryType
+import org.zotero.android.database.objects.RGroup
+import org.zotero.android.database.requests.DeleteGroupDbRequest
+import org.zotero.android.database.requests.ReadAllGroupsDbRequest
 import org.zotero.android.database.requests.ReadCollectionDbRequest
 import org.zotero.android.database.requests.ReadLibraryDbRequest
 import org.zotero.android.database.requests.ReadSearchDbRequest
+import org.zotero.android.database.requests.groupId
 import org.zotero.android.files.FileStore
 import org.zotero.android.screens.allitems.data.AllItemsArgs
 import org.zotero.android.screens.allitems.data.InitialLoadData
 import org.zotero.android.screens.collections.data.CollectionsArgs
 import org.zotero.android.screens.dashboard.data.ShowDashboardLongPressBottomSheet
+import org.zotero.android.screens.libraries.data.DeleteGroupDialogData
 import org.zotero.android.sync.Collection
 import org.zotero.android.sync.CollectionIdentifier
 import org.zotero.android.sync.Library
@@ -43,22 +52,36 @@ import org.zotero.android.sync.conflictresolution.ShowSimpleConflictResolutionDi
 import org.zotero.android.uicomponents.bottomsheet.LongPressOptionItem
 import org.zotero.android.uicomponents.bottomsheet.LongPressOptionsHolder
 import org.zotero.android.uicomponents.snackbar.SnackbarMessage
+import org.zotero.android.webdav.WebDavSessionStorage
 import timber.log.Timber
 import java.io.File
+import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
-    private val dbWrapper: DbWrapper,
+    private val dbWrapperMain: DbWrapperMain,
     private val fileStore: FileStore,
     private val conflictResolutionUseCase: ConflictResolutionUseCase,
     private val debugLogging: DebugLogging,
     private val debugLoggingDialogDataEventStream: DebugLoggingDialogDataEventStream,
     private val crashShareDataEventStream: CrashShareDataEventStream,
     private val context: Context,
-    private val sessionController: SessionController
+    private val sessionController: SessionController,
+    private val sessionStorage: WebDavSessionStorage,
+    private val navigationParamsMarshaller: NavigationParamsMarshaller,
 ) : BaseViewModel2<DashboardViewState, DashboardViewEffect>(DashboardViewState()),
     DebugLoggingInterface {
+
+    var isTablet: Boolean = false
+    var groupLibraries: RealmResults<RGroup>? = null
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onEvent(deleteGroupDialogData: DeleteGroupDialogData) {
+        updateState {
+            copy(deleteGroupDialogData = deleteGroupDialogData)
+        }
+    }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onEvent(event: AskUserToResolveChangedDeletedItem) {
@@ -99,8 +122,12 @@ class DashboardViewModel @Inject constructor(
                     }
 
                     is Conflict.groupFileWriteDenied -> {
-                        //TODO check for WebDav variable
-                        val domainName = "zotero.org"
+                        val domainName: String
+                        domainName = if (!sessionStorage.isEnabled) {
+                            "zotero.org"
+                        } else {
+                            sessionStorage.url
+                        }
 
                         ConflictDialogData.groupFileWriteDenied(
                             groupId = conflict.groupId,
@@ -117,25 +144,32 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    fun init() = initOnce {
-        EventBus.getDefault().register(this)
-        ScreenArguments.collectionsArgs = CollectionsArgs(libraryId = fileStore.getSelectedLibrary(), fileStore.getSelectedCollectionId())
+    fun init(isTablet: Boolean) = initOnce {
+        viewModelScope.launch {
+            this@DashboardViewModel.isTablet = isTablet
+            EventBus.getDefault().register(this@DashboardViewModel)
 
-        debugLogging.debugLoggingInterface = this
-        setupDebugLoggingDialogDataEventStream()
-        setupCrashShareDataEventStream()
+            debugLogging.debugLoggingInterface = this@DashboardViewModel
+            setupDebugLoggingDialogDataEventStream()
+            setupCrashShareDataEventStream()
+            listenToGroupDeletionEvents()
 
-        if (sessionController.isInitialized && debugLogging.isEnabled) {
-            setDebugWindow(true)
+            if (sessionController.isInitialized && debugLogging.isEnabled) {
+                setDebugWindow(true)
+            }
+
+            val data = loadInitialDetailData(
+                collectionId = fileStore.getSelectedCollectionIdAsync(),
+                libraryId = fileStore.getSelectedLibraryAsync()
+            )
+            if (data != null) {
+                showItems(data.collection, data.library, searchItemKeys = null)
+            }
+            updateState {
+                copy(initialLoadData = data)
+            }
         }
 
-        val data = loadInitialDetailData(
-            collectionId = fileStore.getSelectedCollectionId(),
-            libraryId = fileStore.getSelectedLibrary()
-        )
-        if (data != null) {
-            showItems(data.collection, data.library, searchItemKeys = null)
-        }
     }
 
     private fun setupDebugLoggingDialogDataEventStream() {
@@ -166,7 +200,7 @@ class DashboardViewModel @Inject constructor(
         var library: Library? = null
 
         try {
-            dbWrapper.realmDbStorage.perform(coordinatorAction = { coordinator ->
+            dbWrapperMain.realmDbStorage.perform(coordinatorAction = { coordinator ->
                 when (collectionId) {
                     is CollectionIdentifier.collection -> {
                         val rCollection = coordinator.perform(
@@ -256,9 +290,6 @@ class DashboardViewModel @Inject constructor(
     fun revertGroupChanges(key: Int) {
         conflictResolutionUseCase.revertGroupChanges(key)
     }
-    fun keepGroupChanges(key: Int) {
-        conflictResolutionUseCase.keepGroupChanges(key)
-    }
 
     fun revertGroupFiles(groupId: Int) {
         conflictResolutionUseCase.revertGroupFiles(LibraryIdentifier.group(groupId))
@@ -287,6 +318,14 @@ class DashboardViewModel @Inject constructor(
         updateState {
             copy(
                 crashReportIdDialogData = null,
+            )
+        }
+    }
+
+    fun onDismissDeleteGroupDialog() {
+        updateState {
+            copy(
+                deleteGroupDialogData = null,
             )
         }
     }
@@ -336,19 +375,115 @@ class DashboardViewModel @Inject constructor(
         debugLogging.stop()
     }
 
+    fun deleteNonLocalGroup(groupId: Int) {
+        viewModelScope.launch {
+            perform(
+                dbWrapper = dbWrapperMain,
+                DeleteGroupDbRequest(groupId = groupId)
+            ).ifFailure {
+                Timber.e(it, "DashboardViewModel: can't delete group")
+                return@launch
+            }
+        }
+    }
+
+    private fun listenToGroupDeletionEvents() {
+        dbWrapperMain.realmDbStorage.perform { coordinator ->
+            this.groupLibraries = coordinator.perform(request = ReadAllGroupsDbRequest())
+
+            this.groupLibraries?.addChangeListener { _, changeSet ->
+                when (changeSet.state) {
+                    OrderedCollectionChangeSet.State.INITIAL -> {
+                        //no-op
+                    }
+
+                    OrderedCollectionChangeSet.State.UPDATE -> {
+                        val deletions = changeSet.deletions
+                        if (deletions.isNotEmpty()) {
+                            showDefaultLibraryIfNeeded()
+                        }
+                    }
+
+                    OrderedCollectionChangeSet.State.ERROR -> {
+                        Timber.e(changeSet.error, "DashboardViewModel: could not listen to Group Events")
+                    }
+                    else -> {
+                        //no-op
+                    }
+                }
+            }
+        }
+    }
+
+    private fun showDefaultLibraryIfNeeded() {
+        when (val visibleLibraryId = fileStore.getSelectedLibrary()) {
+            is LibraryIdentifier.custom -> {
+                //no-op
+            }
+
+            is LibraryIdentifier.group -> {
+                val groupId = visibleLibraryId.groupId
+
+                if (this.groupLibraries?.where()?.groupId(groupId)?.findFirst() == null) {
+                    showCollections(LibraryIdentifier.custom(RCustomLibraryType.myLibrary))
+                }
+            }
+        }
+    }
+
+    fun showCollections(libraryId: LibraryIdentifier) {
+        val collectionId = storeIfNeeded(libraryId = libraryId)
+
+        val collectionsArgs = CollectionsArgs(
+            libraryId = libraryId,
+            selectedCollectionId = collectionId,
+            shouldRecreateItemsScreen = this.isTablet
+        )
+        val encodedArgs = navigationParamsMarshaller.encodeObjectToBase64(collectionsArgs, StandardCharsets.UTF_8)
+        triggerEffect(DashboardViewEffect.NavigateToCollectionsScreen(encodedArgs))
+    }
+
+    private fun storeIfNeeded(libraryId: LibraryIdentifier, collectionId: CollectionIdentifier? = null): CollectionIdentifier {
+        if (fileStore.getSelectedLibrary() == libraryId) {
+            if (collectionId != null) {
+                fileStore.setSelectedCollectionId(collectionId)
+                return collectionId
+            }
+            return fileStore.getSelectedCollectionId()
+        }
+
+        val collectionId = collectionId ?: CollectionIdentifier.custom(CollectionIdentifier.CustomType.all)
+        fileStore.setSelectedLibrary(libraryId)
+        fileStore.setSelectedCollectionId(collectionId)
+        return collectionId
+
+    }
+
+    suspend fun getInitialCollectionArgs(): String {
+        val collectionsArgs = CollectionsArgs(
+            libraryId = fileStore.getSelectedLibraryAsync(),
+            selectedCollectionId = fileStore.getSelectedCollectionIdAsync()
+        )
+        val encodedArgs =
+            navigationParamsMarshaller.encodeObjectToBase64Async(collectionsArgs, StandardCharsets.UTF_8)
+        return encodedArgs
+    }
 }
 
 data class DashboardViewState(
+    val initialLoadData: InitialLoadData? = null,
     val snackbarMessage: SnackbarMessage? = null,
     val conflictDialog: ConflictDialogData? = null,
     val debugLoggingDialogData: DebugLoggingDialogData? = null,
     val crashReportIdDialogData: CrashReportIdDialogData? = null,
+    val deleteGroupDialogData: DeleteGroupDialogData? = null,
     val changedItemsDeletedAlertQueue: List<ConflictDialogData.changedItemsDeletedAlert> = emptyList(),
     val longPressOptionsHolder: LongPressOptionsHolder? = null,
     val showDebugWindow: Boolean = false,
     ) : ViewState
 
 sealed class DashboardViewEffect : ViewEffect {
+    data class NavigateToCollectionsScreen(val screenArgs:String) : DashboardViewEffect()
 }
 
 sealed class ConflictDialogData  {

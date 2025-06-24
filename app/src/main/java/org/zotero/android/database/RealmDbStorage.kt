@@ -139,8 +139,6 @@ class RealmDbCoordinator {
     }
 
     fun invalidate() {
-//        realm.invalidate()
+        realm.close()
     }
-
-
 }

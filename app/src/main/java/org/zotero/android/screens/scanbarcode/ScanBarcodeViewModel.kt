@@ -17,15 +17,16 @@ import org.zotero.android.attachmentdownloader.RemoteAttachmentDownloader
 import org.zotero.android.attachmentdownloader.RemoteAttachmentDownloaderEventStream
 import org.zotero.android.database.objects.FieldKeys
 import org.zotero.android.files.FileStore
+import org.zotero.android.screens.addbyidentifier.IdentifierLookupController
+import org.zotero.android.screens.addbyidentifier.TranslatorLoadedEventStream
+import org.zotero.android.screens.addbyidentifier.data.IdentifierLookupMode
+import org.zotero.android.screens.addbyidentifier.data.LookupRow
+import org.zotero.android.screens.addbyidentifier.data.LookupRowItem
 import org.zotero.android.screens.scanbarcode.ScanBarcodeViewEffect.NavigateBack
 import org.zotero.android.screens.scanbarcode.ScanBarcodeViewModel.State
 import org.zotero.android.sync.LibraryIdentifier
 import org.zotero.android.sync.SchemaController
 import org.zotero.android.uicomponents.Strings
-import org.zotero.android.uicomponents.addbyidentifier.IdentifierLookupController
-import org.zotero.android.uicomponents.addbyidentifier.TranslatorLoadedEventStream
-import org.zotero.android.uicomponents.addbyidentifier.data.LookupRow
-import org.zotero.android.uicomponents.addbyidentifier.data.LookupRowItem
 import timber.log.Timber
 import java.util.LinkedList
 import javax.inject.Inject
@@ -44,20 +45,22 @@ internal class ScanBarcodeViewModel @Inject constructor(
     private val queueOfScannedBarcodes = LinkedList<String>()
 
     fun init() = initOnce {
-        setupTranslatorLoadedObserving()
-        setupAttachmentObserving()
-        val collectionKeys =
-            fileStore.getSelectedCollectionId().keyGet?.let { setOf(it) } ?: emptySet()
-        val libraryId = fileStore.getSelectedLibrary()
-        initState(
-            hasDarkBackground = false,
-            collectionKeys = collectionKeys,
-            libraryId = libraryId
-        )
+        viewModelScope.launch {
+            setupTranslatorLoadedObserving()
+            setupAttachmentObserving()
+            val collectionKeys =
+                fileStore.getSelectedCollectionIdAsync().keyGet?.let { setOf(it) } ?: emptySet()
+            val libraryId = fileStore.getSelectedLibraryAsync()
+            initState(
+                hasDarkBackground = false,
+                collectionKeys = collectionKeys,
+                libraryId = libraryId
+            )
 
-        initialize(collectionKeys = collectionKeys, libraryId = libraryId)
+            initialize(collectionKeys = collectionKeys, libraryId = libraryId)
 
-        launchBarcodeScanner()
+            launchBarcodeScanner()
+        }
     }
 
     fun launchBarcodeScanner() {
@@ -83,6 +86,7 @@ internal class ScanBarcodeViewModel @Inject constructor(
 
     private fun initialize(collectionKeys: Set<String>, libraryId: LibraryIdentifier) {
         identifierLookupController.initialize(
+            lookupMode = IdentifierLookupMode.normal,
             libraryId = libraryId,
             shouldSkipLookupsCleaning = true,
             collectionKeys = collectionKeys
@@ -118,7 +122,7 @@ internal class ScanBarcodeViewModel @Inject constructor(
                                 if (update.lookupData.isEmpty()) {
                                     context.longToast(Strings.errors_lookup)
                                 } else {
-                                    context.longToast(Strings.errors_lookup_no_identifiers_with_lookup_data)
+                                    context.longToast(Strings.scar_barcode_error_lookup_no_new_identifiers_found)
                                 }
                             }
                             updateLookupState(State.lookup(update.lookupData))
@@ -244,7 +248,7 @@ internal class ScanBarcodeViewModel @Inject constructor(
                         )
                     }
 
-                    is IdentifierLookupController.LookupData.State.translated -> {
+                    is IdentifierLookupController.LookupData.State.translatedAndParsedAttachments -> {
                         val translationData = lookup.state.translatedLookupData
                         val title: String
                         val _title = translationData.response.fields[KeyBaseKeyPair(
@@ -294,6 +298,12 @@ internal class ScanBarcodeViewModel @Inject constructor(
                             )
                         }
                         rowsList.addAll(attachments)
+                    }
+                    is IdentifierLookupController.LookupData.State.translatedAndCreatedItem -> {
+                        //no-op
+                    }
+                    is IdentifierLookupController.LookupData.State.translatedOnly -> {
+                        //no-op
                     }
                 }
             }
@@ -348,10 +358,10 @@ internal class ScanBarcodeViewModel @Inject constructor(
     fun onItemDelete(lookupRow: LookupRow.item) {
         val state = viewState.lookupState as State.lookup
         val item = state.data.find {
-            val translatedItem = it.state as IdentifierLookupController.LookupData.State.translated
+            val translatedItem = it.state as IdentifierLookupController.LookupData.State.translatedAndParsedAttachments
             translatedItem.translatedLookupData.response.key == lookupRow.item.key
         }!!
-        val translatedItem = item.state as IdentifierLookupController.LookupData.State.translated
+        val translatedItem = item.state as IdentifierLookupController.LookupData.State.translatedAndParsedAttachments
 
         identifierLookupController.trashItem(
             identifier = lookupRow.item.identifier,

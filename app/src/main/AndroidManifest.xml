@@ -12,17 +12,6 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         tools:node="remove" />
 
-    <uses-permission
-        android:name="android.permission.WAKE_LOCK"
-        tools:node="remove" />
-
-    <uses-permission
-        android:name="android.permission.RECEIVE_BOOT_COMPLETED"
-        tools:node="remove" />
-
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
-
     <application
         android:name=".ZoteroApplication"
         android:icon="@mipmap/ic_launcher"
@@ -56,14 +45,23 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!--Share With-->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
 
-                <data android:mimeType="application/*" />
-                <data android:mimeType="image/*" />
-                <data android:mimeType="video/*" />
+            <!--Open With-->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/epub+zip" />
             </intent-filter>
         </activity>
 
@@ -111,8 +109,7 @@
 
         <service
             android:name=".screens.share.service.ShareUploadService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync"/>
+            android:exported="false" />
 
     </application>
 

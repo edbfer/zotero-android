@@ -9,6 +9,7 @@ import org.zotero.android.files.DataMarshaller
 import org.zotero.android.pdf.data.PDFSettings
 import org.zotero.android.screens.allitems.data.ItemsSortType
 import org.zotero.android.screens.itemdetails.data.ItemDetailCreator
+import org.zotero.android.webdav.data.WebDavScheme
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,11 +26,11 @@ open class Defaults @Inject constructor(
     private val usePdfjsreader = "usePdfjsReader"
     private val displayName = "displayName"
     private val apiToken = "apiToken"
-    private val webDavPassword = "webDavPassword"
     private val showSubcollectionItems = "showSubcollectionItems"
     private val lastUsedCreatorNamePresentation = "LastUsedCreatorNamePresentation"
     private val itemsSortType = "ItemsSortType"
     private val showCollectionItemCounts = "showCollectionItemCounts"
+    private val performFullSyncGuardKey = "performFullSyncGuardKey"
     private val didPerformFullSyncFix = "didPerformFullSyncFix"
     private val tagPickerShowAutomaticTags = "tagPickerShowAutomaticTags"
     private val tagPickerDisplayAllTags = "tagPickerDisplayAllTags"
@@ -40,8 +41,11 @@ open class Defaults @Inject constructor(
     private val noteColorHex = "noteColorHex"
     private val squareColorHex = "squareColorHex"
     private val inkColorHex = "inkColorHex"
+    private val underlineColorHex = "underlineColorHex"
+    private val textColorHex = "textColorHex"
     private val activeLineWidth = "activeLineWidth"
     private val activeEraserSize = "activeEraserSize"
+    private val activeFontSize = "activeFontSize"
     private val shareExtensionIncludeTags = "shareExtensionIncludeTags"
 
     private val lastTimestamp = "lastTimestamp"
@@ -49,6 +53,14 @@ open class Defaults @Inject constructor(
     private val lastTranslatorCommitHash = "lastTranslatorCommitHash"
     private val lastTranslatorDeleted = "lastTranslatorDeleted"
     private val lastStylesCommitHash = "lastStylesCommitHash"
+    private val lastPdfWorkerCommitHash = "lastPdfWorkerCommitHash"
+
+    private val isWebDavEnabled = "isWebDavEnabled"
+    private val webDavVerified = "webDavVerified"
+    private val webDavUsername = "webDavUsername"
+    private val webDavUrl = "webDavUrl"
+    private val webDavScheme = "webDavScheme"
+    private val webDavPassword = "webDavPassword"
 
     private val sharedPreferences: SharedPreferences by lazy {
         context.getSharedPreferences(
@@ -89,6 +101,22 @@ open class Defaults @Inject constructor(
         return sharedPreferences.getString(inkColorHex, AnnotationsConfig.defaultActiveColor )!!
     }
 
+    fun setTextColorHex(str: String) {
+        sharedPreferences.edit { putString(textColorHex, str) }
+    }
+
+    fun getTextColorHex(): String {
+        return sharedPreferences.getString(textColorHex, AnnotationsConfig.defaultActiveColor )!!
+    }
+
+    fun setUnderlineColorHex(str: String) {
+        sharedPreferences.edit { putString(underlineColorHex, str) }
+    }
+
+    fun getUnderlineColorHex(): String {
+        return sharedPreferences.getString(underlineColorHex, AnnotationsConfig.defaultActiveColor )!!
+    }
+
     fun setActiveLineWidth(width: Float) {
         sharedPreferences.edit { putFloat(activeLineWidth, width) }
     }
@@ -103,6 +131,14 @@ open class Defaults @Inject constructor(
 
     fun getActiveEraserSize(): Float {
         return sharedPreferences.getFloat(activeEraserSize, 10f )
+    }
+
+    fun setActiveFontSize(size: Float) {
+        sharedPreferences.edit { putFloat(activeFontSize, size) }
+    }
+
+    fun getActiveFontSize(): Float {
+        return sharedPreferences.getFloat(activeFontSize, 12f )
     }
 
     fun setUserId(str: Long) {
@@ -159,14 +195,6 @@ open class Defaults @Inject constructor(
 
     fun getApiToken(): String? {
         return sharedPreferences.getString(apiToken, null )
-    }
-
-    fun setWebDavPassword(str: String?) {
-        sharedPreferences.edit { putString(webDavPassword, str) }
-    }
-
-    fun getWebDavPassword(): String? {
-        return sharedPreferences.getString(webDavPassword, null )
     }
 
     fun isUserLoggedIn() :Boolean {
@@ -324,13 +352,91 @@ open class Defaults @Inject constructor(
         return sharedPreferences.getString(lastStylesCommitHash, "") ?: ""
     }
 
+    fun setWebDavEnabled(newValue: Boolean) {
+        sharedPreferences.edit { putBoolean(isWebDavEnabled, newValue) }
+    }
+
+    fun isWebDavEnabled(): Boolean {
+        return sharedPreferences.getBoolean(isWebDavEnabled, false)
+    }
+
+    fun setWebDavVerified(newValue: Boolean) {
+        sharedPreferences.edit { putBoolean(webDavVerified, newValue) }
+    }
+
+    fun isWebDavVerified(): Boolean {
+        return sharedPreferences.getBoolean(webDavVerified, false)
+    }
+
+    fun setWebDavUsername(str: String?) {
+        sharedPreferences.edit { putString(webDavUsername, str) }
+    }
+
+    fun getWebDavUsername(): String? {
+        return sharedPreferences.getString(webDavUsername, null )
+    }
+
+    fun setWebDavPassword(str: String?) {
+        sharedPreferences.edit { putString(webDavPassword, str) }
+    }
+
+    fun getWebDavPassword(): String? {
+        return sharedPreferences.getString(webDavPassword, null )
+    }
+
+    fun setWebDavUrl(str: String?) {
+        sharedPreferences.edit { putString(webDavUrl, str) }
+    }
+
+    fun getWebDavUrl(): String? {
+        return sharedPreferences.getString(webDavUrl, null )
+    }
+
+
+    fun setWebDavScheme(scheme: WebDavScheme) {
+        val json = dataMarshaller.marshal(scheme)
+        sharedPreferences.edit { putString(webDavScheme, json) }
+    }
+
+    fun getWebDavScheme(): WebDavScheme {
+        val json: String = sharedPreferences.getString(
+            webDavScheme,
+            null
+        )
+            ?: return WebDavScheme.https
+        return dataMarshaller.unmarshal(json)
+    }
+
+    val currentPerformFullSyncGuard = 1
+
+    fun setPerformFullSyncGuard(newValue: Int) {
+        sharedPreferences.edit { putInt(performFullSyncGuardKey, newValue) }
+    }
+
+    fun performFullSyncGuard(): Int {
+        if (!sharedPreferences.contains(performFullSyncGuardKey)) {
+            if (sharedPreferences.contains(didPerformFullSyncFix)) {
+                return currentPerformFullSyncGuard - 1
+            }
+            return currentPerformFullSyncGuard
+        }
+        return sharedPreferences.getInt(performFullSyncGuardKey, 1)
+    }
+
+    fun getLastPdfWorkerCommitHash(): String {
+        return sharedPreferences.getString(lastPdfWorkerCommitHash, "") ?: ""
+    }
+
+    fun setLastPdfWorkerCommitHash(newValue: String) {
+        sharedPreferences.edit { putString(lastPdfWorkerCommitHash, newValue) }
+    }
+
     fun reset() {
         setUsername("")
         setDisplayName("")
         setUserId(0L)
         setShowSubcollectionItems(false)
         setApiToken(null)
-        setWebDavPassword(null)
         setItemsSortType(ItemsSortType.default)
 
         setActiveLineWidth(1f)
@@ -338,7 +444,16 @@ open class Defaults @Inject constructor(
         setSquareColorHex(AnnotationsConfig.defaultActiveColor)
         setNoteColorHex(AnnotationsConfig.defaultActiveColor)
         setHighlightColorHex(AnnotationsConfig.defaultActiveColor)
+        setUnderlineColorHex(AnnotationsConfig.defaultActiveColor)
+        setTextColorHex(AnnotationsConfig.defaultActiveColor)
         setPDFSettings(pdfSettings = PDFSettings.default())
+
+        setWebDavUrl(null)
+        setWebDavScheme(WebDavScheme.https)
+        setWebDavEnabled(false)
+        setWebDavUsername(null)
+        setWebDavPassword(null)
+        setWebDavVerified(false)
     }
 
 }
