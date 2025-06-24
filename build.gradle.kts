@@ -8,7 +8,7 @@ buildscript {
         gradlePluginPortal()
     }
     dependencies {
-        classpath("com.android.tools.build:gradle:8.2.1")
+        classpath("com.android.tools.build:gradle:8.10.0")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.20")
         classpath(Libs.Kotlin.serialization)
         classpath(Libs.Firebase.Crashlytics.crashlyticsGradle)

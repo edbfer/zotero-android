@@ -38,6 +38,11 @@ class PdfjsDocument @Inject constructor(
         }
     }
 
+    fun getAllAnnotations() : List<PdfjsAnnotation>
+    {
+        return emptyList()
+    }
+
     //lateinit var annotationProvider: PdfjsAnnotationProvider
 
    /* fun annotation(pageIndex: Int, key: String): PdfjsAnnotation {

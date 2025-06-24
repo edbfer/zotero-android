@@ -429,11 +429,11 @@ class PdfjsViewModel @Inject constructor(
         val annotations = mutableMapOf<String, PdfjsDocumentAnnotation>()
         val pdfAnnotations = document.getAllAnnotations()
 
-        for (pdfAnnotation in pdfAnnotations)
+        /*for (pdfAnnotation in pdfAnnotations)
         {
             //TODO: WAS ANIMATION CONVERTER HERE
             annotations[pdfAnnotation.key] = pdfAnnotation
-        }
+        }*/
         return annotations
     }
 
